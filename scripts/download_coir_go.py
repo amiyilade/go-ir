@@ -262,7 +262,7 @@ def main():
     print("Next steps:")
     print("  1. Review the downloaded data")
     print("  2. Run script 2 to create task-specific samples:")
-    print("     python scripts/2_sample_and_organize.py")
+    print("     python scripts/organise_coir_go_full.py")
     print()
 
 if __name__ == "__main__":
