@@ -11,7 +11,7 @@ from collections import defaultdict
 import sys
 
 # Configuration
-RAW_DIR = Path("data/raw")
+RAW_DIR = Path("data/coir_go")
 CODE_TO_TEXT_INPUT = RAW_DIR / "codesearchnet" / "consolidated.jsonl"
 CODE_TO_CODE_INPUT = RAW_DIR / "codesearchnet-ccr" / "consolidated.jsonl"
 
