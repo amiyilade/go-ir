@@ -38,7 +38,7 @@ MODELS = {
 }
 
 # CRITICAL: Proper batch size
-BATCH_SIZE = 4  # Process 4 samples at once
+BATCH_SIZE = 16  # Process 16 samples at once
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class ModelAnalyzer:
