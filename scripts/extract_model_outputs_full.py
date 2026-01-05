@@ -18,7 +18,7 @@ import gc
 # Configuration
 CODE_TO_TEXT_DIR = Path("data/code-to-text")
 CODE_TO_CODE_DIR = Path("data/code-to-code")
-RESULTS_DIR = Path("results")
+RESULTS_DIR = Path("/content/results")
 MODEL_OUTPUT_DIR = RESULTS_DIR / "model_outputs"
 
 # Model configurations
