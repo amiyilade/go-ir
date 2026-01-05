@@ -37,7 +37,7 @@ MODELS = {
 
 # Batch processing settings
 BATCH_SIZE = 32  # A100 can handle this easily
-SAVE_EVERY = 200  # Save results every 200 samples to avoid RAM overflow
+SAVE_EVERY = 100  # Save results every 100 samples to avoid RAM overflow
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class ModelAnalyzer:
