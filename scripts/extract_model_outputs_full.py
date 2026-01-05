@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-Script 4 (FULL - FIXED): Extract Model Outputs WITH PROPER BATCHING
-Extracts attention weights and contextual embeddings from UniXcoder and CodeBERT models.
-
-FIXED: Now properly batches samples for 3-4x speedup!
+Script 4 (FULL - FINAL FIX): Extract Model Outputs with Incremental Saving
+FIXES RAM overflow issue by saving results periodically instead of accumulating all in memory.
 """
 
 import json
@@ -11,7 +9,7 @@ import torch
 import numpy as np
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModel
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from tqdm import tqdm
 import sys
 import argparse
@@ -37,8 +35,9 @@ MODELS = {
     }
 }
 
-# CRITICAL: Proper batch size
-BATCH_SIZE = 16  # Process 16 samples at once
+# Batch processing settings
+BATCH_SIZE = 32  # A100 can handle this easily
+SAVE_EVERY = 200  # Save results every 200 samples to avoid RAM overflow
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class ModelAnalyzer:
@@ -76,13 +75,33 @@ class ModelAnalyzer:
         print(f"  ✓ Model loaded on {DEVICE}")
         print(f"    Layers: {self.num_layers}, Heads: {self.num_heads}, Hidden: {self.hidden_size}")
 
-def process_dataset_batched(dataset_path: Path, model_analyzer: ModelAnalyzer, 
-                            output_dir: Path, dataset_name: str, task_type: str):
-    """Process dataset with PROPER BATCHING."""
+def save_results_batch(results_dict: Dict, output_file: Path, mode: str = 'a'):
+    """Save a batch of results to file and free memory."""
+    with open(output_file, mode, encoding='utf-8') as f:
+        for sample_id in sorted(results_dict.keys()):
+            json.dump(results_dict[sample_id], f, ensure_ascii=False)
+            f.write('\n')
+    
+    # Clear the dict to free RAM
+    results_dict.clear()
+    gc.collect()
+    
+    # Clear GPU cache too
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
+
+def process_dataset_incremental(dataset_path: Path, model_analyzer: ModelAnalyzer, 
+                                output_dir: Path, dataset_name: str, task_type: str):
+    """
+    Process dataset with batching AND incremental saving to avoid RAM overflow.
+    
+    KEY FIX: Saves results every SAVE_EVERY samples instead of accumulating all in RAM!
+    """
     print(f"\n{'='*80}")
     print(f"PROCESSING: {dataset_name}")
     print(f"Task: {task_type}")
     print(f"Batch size: {BATCH_SIZE}")
+    print(f"Save interval: Every {SAVE_EVERY} samples")
     print(f"{'='*80}")
     
     # Load dataset
@@ -94,6 +113,10 @@ def process_dataset_batched(dataset_path: Path, model_analyzer: ModelAnalyzer,
     print(f"Number of batches: {num_batches}")
     
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Prepare output file (create empty or overwrite existing)
+    output_file = output_dir / f"{dataset_name}_{model_analyzer.model_name}_features.jsonl"
+    output_file.write_text('')  # Clear file
     
     # Prepare all samples first
     all_samples = []
@@ -115,99 +138,118 @@ def process_dataset_batched(dataset_path: Path, model_analyzer: ModelAnalyzer,
     
     print(f"Total code snippets to process: {len(all_samples)}")
     
-    # Process in batches
-    results_dict = {}  # sample_id -> features
+    # Process in batches with incremental saving
+    results_dict = {}
+    samples_since_save = 0
+    total_saved = 0
     
-    for batch_start in tqdm(range(0, len(all_samples), BATCH_SIZE), 
-                           desc="Processing batches", 
-                           unit="batch"):
-        batch_end = min(batch_start + BATCH_SIZE, len(all_samples))
-        batch = all_samples[batch_start:batch_end]
-        
-        # Extract codes and metadata
-        batch_codes = [item['code'] for item in batch]
-        
-        try:
-            # Tokenize entire batch
-            inputs = model_analyzer.tokenizer(
-                batch_codes,
-                return_tensors="pt",
-                max_length=model_analyzer.max_length,
-                truncation=True,
-                padding=True
-            ).to(DEVICE)
+    with tqdm(total=len(all_samples), desc="Processing", unit="sample") as pbar:
+        for batch_start in range(0, len(all_samples), BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, len(all_samples))
+            batch = all_samples[batch_start:batch_end]
             
-            # Forward pass for entire batch (THIS IS THE KEY!)
-            with torch.no_grad():
-                outputs = model_analyzer.model(**inputs)
+            # Extract codes
+            batch_codes = [item['code'] for item in batch]
             
-            # Process each item in batch
-            for idx, item in enumerate(batch):
-                sample_id = item['sample_id']
-                label = item['label']
+            try:
+                # Tokenize entire batch
+                inputs = model_analyzer.tokenizer(
+                    batch_codes,
+                    return_tensors="pt",
+                    max_length=model_analyzer.max_length,
+                    truncation=True,
+                    padding=True
+                ).to(DEVICE)
                 
-                # Initialize result for this sample if needed
-                if sample_id not in results_dict:
-                    results_dict[sample_id] = {
-                        'sample_id': sample_id,
-                        'task_type': item['task_type'],
-                        'features': {}
+                # Forward pass for entire batch
+                with torch.no_grad():
+                    outputs = model_analyzer.model(**inputs)
+                
+                # Process each item in batch
+                for idx, item in enumerate(batch):
+                    sample_id = item['sample_id']
+                    label = item['label']
+                    
+                    # Initialize result for this sample if needed
+                    if sample_id not in results_dict:
+                        results_dict[sample_id] = {
+                            'sample_id': sample_id,
+                            'task_type': item['task_type'],
+                            'features': {}
+                        }
+                    
+                    # Extract tokens
+                    tokens = model_analyzer.tokenizer.convert_ids_to_tokens(
+                        inputs['input_ids'][idx]
+                    )
+                    
+                    # Extract attention
+                    attention_dict = {}
+                    for layer_idx, layer_attn in enumerate(outputs.attentions):
+                        layer_attn_item = layer_attn[idx].cpu().numpy()
+                        attention_dict[f'layer_{layer_idx}'] = {
+                            f'head_{head_idx}': layer_attn_item[head_idx].tolist()
+                            for head_idx in range(layer_attn_item.shape[0])
+                        }
+                    
+                    # Extract embeddings
+                    embeddings_dict = {}
+                    for layer_idx, layer_hidden in enumerate(outputs.hidden_states):
+                        embeddings_dict[f'layer_{layer_idx}'] = \
+                            layer_hidden[idx].cpu().numpy().tolist()
+                    
+                    # Store features
+                    results_dict[sample_id]['features'][label] = {
+                        'tokens': tokens,
+                        'attention_weights': attention_dict,
+                        'embeddings': embeddings_dict,
+                        'seq_length': len(tokens),
+                        'model_info': {
+                            'model_name': model_analyzer.model_name,
+                            'num_layers': model_analyzer.num_layers,
+                            'num_heads': model_analyzer.num_heads,
+                            'hidden_size': model_analyzer.hidden_size
+                        }
                     }
+                    
+                    samples_since_save += 1
+                    pbar.update(1)
                 
-                # Extract tokens
-                tokens = model_analyzer.tokenizer.convert_ids_to_tokens(
-                    inputs['input_ids'][idx]
-                )
-                
-                # Extract attention (batch_idx, layer, head, seq, seq)
-                attention_dict = {}
-                for layer_idx, layer_attn in enumerate(outputs.attentions):
-                    layer_attn_item = layer_attn[idx].cpu().numpy()
-                    attention_dict[f'layer_{layer_idx}'] = {
-                        f'head_{head_idx}': layer_attn_item[head_idx].tolist()
-                        for head_idx in range(layer_attn_item.shape[0])
-                    }
-                
-                # Extract embeddings (batch_idx, layer, seq, hidden)
-                embeddings_dict = {}
-                for layer_idx, layer_hidden in enumerate(outputs.hidden_states):
-                    embeddings_dict[f'layer_{layer_idx}'] = \
-                        layer_hidden[idx].cpu().numpy().tolist()
-                
-                # Store features
-                results_dict[sample_id]['features'][label] = {
-                    'tokens': tokens,
-                    'attention_weights': attention_dict,
-                    'embeddings': embeddings_dict,
-                    'seq_length': len(tokens),
-                    'model_info': {
-                        'model_name': model_analyzer.model_name,
-                        'num_layers': model_analyzer.num_layers,
-                        'num_heads': model_analyzer.num_heads,
-                        'hidden_size': model_analyzer.hidden_size
-                    }
-                }
+                # CRITICAL: Save periodically to avoid RAM overflow
+                if samples_since_save >= SAVE_EVERY:
+                    save_results_batch(results_dict, output_file, mode='a')
+                    total_saved += samples_since_save
+                    samples_since_save = 0
+                    
+                    # Update progress with RAM info
+                    import psutil
+                    ram_gb = psutil.virtual_memory().used / 1e9
+                    pbar.set_postfix({
+                        'saved': total_saved,
+                        'RAM': f'{ram_gb:.1f}GB'
+                    })
             
-            # Clear GPU cache periodically
-            if batch_start % (BATCH_SIZE * 10) == 0:
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
-                gc.collect()
-        
-        except Exception as e:
-            print(f"\n✗ Error in batch {batch_start}-{batch_end}: {e}")
-            continue
+            except Exception as e:
+                print(f"\n✗ Error in batch {batch_start}-{batch_end}: {e}")
+                # Save what we have so far
+                if results_dict:
+                    save_results_batch(results_dict, output_file, mode='a')
+                    total_saved += samples_since_save
+                    samples_since_save = 0
+                continue
     
-    # Convert dict to list
-    results = list(results_dict.values())
+    # Save any remaining results
+    if results_dict:
+        save_results_batch(results_dict, output_file, mode='a')
+        total_saved += samples_since_save
     
-    # Save results
-    output_file = output_dir / f"{dataset_name}_{model_analyzer.model_name}_features.jsonl"
-    with open(output_file, 'w', encoding='utf-8') as f:
-        for result in results:
-            json.dump(result, f, ensure_ascii=False)
-            f.write('\n')
+    print(f"\n✓ Saved {total_saved} features to {output_file.name}")
     
-    print(f"\n✓ Saved {len(results)} samples to {output_file.name}")
+    # Verify saved count
+    with open(output_file, 'r') as f:
+        actual_count = sum(1 for line in f)
+    
+    print(f"  Verification: {actual_count} samples in file")
     
     # Save summary
     summary = {
@@ -215,7 +257,7 @@ def process_dataset_batched(dataset_path: Path, model_analyzer: ModelAnalyzer,
         'dataset': dataset_name,
         'task_type': task_type,
         'total_samples': len(data),
-        'successful_extractions': len(results),
+        'successful_extractions': actual_count,
         'model_config': {
             'num_layers': model_analyzer.num_layers,
             'num_heads': model_analyzer.num_heads,
@@ -231,17 +273,18 @@ def process_dataset_batched(dataset_path: Path, model_analyzer: ModelAnalyzer,
 
 def main():
     """Main execution function."""
-    parser = argparse.ArgumentParser(description='Extract model features (BATCHED)')
+    parser = argparse.ArgumentParser(description='Extract model features (FINAL FIX)')
     parser.add_argument('--model', type=str, choices=['unixcoder', 'codebert', 'both'],
                        default='both', help='Which model to run')
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
-    print("MODEL FEATURE EXTRACTION (FIXED - WITH PROPER BATCHING)")
+    print("MODEL FEATURE EXTRACTION (FINAL FIX - INCREMENTAL SAVING)")
     print("=" * 80)
     print(f"\n⚡ Batch size: {BATCH_SIZE} samples per batch")
     print(f"⚡ Device: {DEVICE}")
-    print(f"⚡ Expected speedup: 3-4x faster than before!")
+    print(f"💾 Save interval: Every {SAVE_EVERY} samples (prevents RAM overflow!)")
+    print(f"⚡ Expected RAM usage: ~30-40 GB (stable)")
     
     models_to_run = ['unixcoder', 'codebert'] if args.model == 'both' else [args.model]
     
@@ -285,7 +328,7 @@ def main():
         
         for dataset in datasets:
             try:
-                process_dataset_batched(
+                process_dataset_incremental(
                     dataset['path'],
                     analyzer,
                     model_output_dir,
@@ -309,9 +352,10 @@ def main():
     print("✓ FEATURE EXTRACTION COMPLETE")
     print("=" * 80)
     print(f"\nResults saved in: {MODEL_OUTPUT_DIR}/")
-    print("\nExpected runtime with batching:")
-    print("  • UniXcoder: ~2.5-3 hours (was ~11 hours)")
-    print("  • CodeBERT: ~2.5-3 hours (was ~11 hours)")
+    print("\nExpected runtime with A100 GPU:")
+    print("  • UniXcoder: ~4-5 hours")
+    print("  • CodeBERT: ~4-5 hours")
+    print("  • Total: ~8-10 hours")
     print("\n")
 
 if __name__ == "__main__":
