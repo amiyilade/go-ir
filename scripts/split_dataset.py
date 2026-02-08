@@ -13,7 +13,7 @@ CODE_TO_TEXT_DIR = Path("data/code-to-text")
 CODE_TO_CODE_DIR = Path("data/code-to-code")
 CHUNKS_DIR = Path("data/chunks")
 
-CHUNK_SIZE = 300
+CHUNK_SIZE = 50
 
 def split_dataset(input_file: Path, output_dir: Path, dataset_name: str):
     """Split a dataset into chunks of CHUNK_SIZE samples."""
