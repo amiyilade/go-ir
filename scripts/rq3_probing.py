@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils.data_loader import stream_samples, load_metadata, get_embedding
 
 DATA_DIR     = Path("data")
-FEATURES_DIR = Path("features")
+FEATURES_DIR = Path("data/features")
 RESULTS_DIR  = Path("results")
 
 MAX_SEQ_LEN           = 80
