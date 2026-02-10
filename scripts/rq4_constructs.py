@@ -240,7 +240,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, choices=["unixcoder", "codebert"])
     parser.add_argument("--task",  required=True,
-                        choices=["code-to-text", "code-to-code"])
+                        choices=["code_to_text", "code_to_code"])
     args = parser.parse_args()
 
     print("=" * 60)
