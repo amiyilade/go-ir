@@ -188,6 +188,7 @@ def main():
         print(f"  Resume: {len(done)} samples already written")
 
     mode = "a" if done else "w"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(out_path, mode) as hf:
 
         if not done:
