@@ -39,7 +39,7 @@ MAX_SEQ_LEN           = 80
 PROBE_EPOCHS          = 20
 PROBE_LR              = 1e-3
 MAX_TRAIN_SAMPLES     = 2000
-MAX_INDUCTION_SAMPLES = 50
+MAX_INDUCTION_SAMPLES = 2000
 MAX_INDUCTION_SEQ_LEN = 40   # cap for Chu-Liu-Edmonds (O(n²))
 LAMBDA_BIAS           = 1.0
 
@@ -57,8 +57,9 @@ class StructuralProbe(nn.Module):
         self.B = nn.Parameter(torch.randn(hidden_size, hidden_size) * 0.01)
 
     def forward_pairs(self, H, idx_i, idx_j):
-        diff = H[idx_i] - H[idx_j]
-        return (diff @ self.B ** 2).sum(dim=1)
+        diff = H[idx_i] - H[idx_j]          # (n_pairs, hidden_size)
+        transformed = diff @ self.B              # apply linear map B
+        return (transformed ** 2).sum(dim=1)    # squared norm ‖B·diff‖²
 
 
 # ── AST helpers ────────────────────────────────────────────────────────────────
