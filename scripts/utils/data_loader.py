@@ -149,13 +149,23 @@ def stream_samples(
 
             rec = jsonl_records[i] if i < len(jsonl_records) else {}
 
+            # Unwrap nested code key ('code' for c2t, 'initial_segment' for c2c)
+            raw_ast  = rec.get('ast_info')  or {}
+            raw_cstr = rec.get('go_constructs') or {}
+            code_key = next(
+                (k for k in ('code', 'initial_segment') if k in raw_ast),
+                None
+            )
+            ast_info     = raw_ast.get(code_key)  if code_key else raw_ast or None
+            go_constructs = raw_cstr.get(code_key) if code_key else raw_cstr or None
+
             yield {
                 'sample_idx':        i,
                 'original_index':    original_index,
                 'embeddings':        embeddings,
                 'attention':         attention,
-                'ast_info':          rec.get('ast_info'),
-                'go_constructs':     rec.get('go_constructs'),
+                'ast_info':          ast_info,
+                'go_constructs':     go_constructs,
                 'construct_profile': rec.get('construct_profile', 'unknown'),
                 'length_bucket':     rec.get('length_bucket', 'unknown'),
                 'query':             rec.get('query', ''),

@@ -40,6 +40,7 @@ PROBE_EPOCHS          = 20
 PROBE_LR              = 1e-3
 MAX_TRAIN_SAMPLES     = 2000
 MAX_INDUCTION_SAMPLES = 50
+MAX_INDUCTION_SEQ_LEN = 40   # cap for Chu-Liu-Edmonds (O(n²))
 LAMBDA_BIAS           = 1.0
 
 DEVICE = (
@@ -269,6 +270,7 @@ def run_part_b(samples, meta):
         for s in valid:
             emb = get_embedding(s, layer)
             if emb is None or emb.shape[0] < 2: continue
+            emb = emb[:MAX_INDUCTION_SEQ_LEN]  # cap to avoid O(n²) hang
             dists   = apply_bias(compute_distances(emb))
             parents = induce_tree(dists)
             f1s.append(f1_score(tree_to_pairs(parents), gold_pairs_from_ast(s['ast_info'])))
