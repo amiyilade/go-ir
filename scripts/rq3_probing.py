@@ -39,7 +39,7 @@ MAX_SEQ_LEN           = 80
 PROBE_EPOCHS          = 20
 PROBE_LR              = 1e-3
 MAX_TRAIN_SAMPLES     = 2000
-MAX_INDUCTION_SAMPLES = 2000
+MAX_INDUCTION_SAMPLES = 500
 MAX_INDUCTION_SEQ_LEN = 40   # cap for Chu-Liu-Edmonds (O(n²))
 LAMBDA_BIAS           = 1.0
 
