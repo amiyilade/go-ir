@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
 """
 utils/data_loader.py
-Shared streaming loader for all RQ analysis scripts.
+Shared streaming data loader for all RQ analysis scripts.
 
-Loads ONE sample at a time from HDF5 + matching JSONL record.
-Never loads the entire dataset into RAM.
+Yields one sample at a time to prevent memory issues on large datasets.
+Handles alignment between HDF5 features (positional) and JSONL metadata.
 
 Usage:
     from utils.data_loader import stream_samples, load_metadata
 
     for sample in stream_samples(h5_path, jsonl_path):
-        emb  = sample["embeddings"]   # np.ndarray (n_layers+1, seq, hidden) float16
-        attn = sample["attentions"]   # np.ndarray (n_layers, n_key_heads, seq, seq) float16
-        rec  = sample["record"]       # dict from JSONL (includes ast_info, go_constructs, …)
-        meta = sample["meta"]         # dict: new_index, original_index, seq_len
+        emb    = sample['embeddings']['layer_7']        # np.float16 [seq_len, 768]
+        attn   = sample['attention']['layer_7_head_7']  # np.float16 [seq_len, seq_len]
+        ast    = sample['ast_info']                     # dict or None
+        constr = sample['go_constructs']                # dict
+        oi     = sample['original_index']               # int
 """
 
 import json
@@ -24,122 +24,145 @@ import h5py
 import numpy as np
 
 
-KEY_HEADS = [0, 3, 5, 7, 11]   # mirrors extract_features.py
+# -----------------------------------------------------------------------
+# Public API
+# -----------------------------------------------------------------------
 
-
-def load_metadata(h5_path: Path) -> Dict[str, Any]:
-    """Return model metadata stored in HDF5 file."""
-    with h5py.File(h5_path, "r") as f:
-        m = f["metadata"]
-        return {
-            "num_layers":  int(m.attrs["num_layers"]),
-            "hidden_size": int(m.attrs["hidden_size"]),
-            "num_heads":   int(m.attrs["num_heads"]),
-            "key_heads":   list(m.attrs["key_heads"]),
-            "num_samples": int(m.attrs["num_samples"]),
-        }
+def load_metadata(h5_path: Path) -> dict:
+    """Return the metadata dict stored in the HDF5 file."""
+    with h5py.File(h5_path, 'r') as h5:
+        return json.loads(h5.attrs.get('metadata', '{}'))
 
 
 def stream_samples(
-    h5_path:   Path,
+    h5_path: Path,
     jsonl_path: Path,
-    max_seq_len: Optional[int] = None,
-    construct_filter: Optional[str] = None,
+    max_samples: Optional[int] = None,
+    embedding_layers: Optional[list] = None,
+    attention_keys: Optional[list] = None,
 ) -> Iterator[Dict[str, Any]]:
     """
-    Yield one sample dict at a time.
+    Yield one sample at a time, lazily reading HDF5 + JSONL in lockstep.
 
     Parameters
     ----------
-    h5_path        : path to features HDF5 (from extract_features.py)
-    jsonl_path     : path to stratified JSONL with ASTs (same ordering)
-    max_seq_len    : if set, skip samples longer than this (used by RQ2 probing)
-    construct_filter: if set, only yield samples whose construct_profile equals this
+    h5_path : Path
+        HDF5 file produced by Script 4.
+    jsonl_path : Path
+        The with_asts JSONL file that matches the HDF5 (same order).
+    max_samples : int, optional
+        Stop after this many samples (useful for debugging).
+    embedding_layers : list of int, optional
+        If given, only load these layer indices. Default = all.
+    attention_keys : list of str, optional
+        If given, only load these attention key names
+        (e.g. ['layer_7_head_7']). Default = all.
 
     Yields
     ------
-    {
-        "embeddings":  np.ndarray  float32  (n_layers+1, seq_len, hidden_size)
-        "attentions":  np.ndarray  float32  (n_layers,  n_key_heads, seq_len, seq_len)
-        "record":      dict        full JSONL record (includes ast_info, go_constructs)
-        "meta": {
-            "new_index":      int
-            "original_index": int
-            "seq_len":        int
-        }
-    }
+    dict with keys:
+        'sample_idx'     : int   (position in the stratified 2k file)
+        'original_index' : int   (position in the full 8k file)
+        'embeddings'     : dict  {layer_key: np.ndarray float16}
+        'attention'      : dict  {layer_head_key: np.ndarray float16}
+        'ast_info'       : dict or None
+        'go_constructs'  : dict or None
+        'construct_profile' : str
+        'length_bucket'     : str
+        'query'             : str
+        'target'            : str
     """
-    # Load JSONL into a new_index → record dict for O(1) lookup
-    records: Dict[int, dict] = {}
-    with open(jsonl_path) as f:
-        for line in f:
-            r = json.loads(line)
-            records[r["new_index"]] = r
+    h5_path    = Path(h5_path)
+    jsonl_path = Path(jsonl_path)
 
-    with h5py.File(h5_path, "r") as hf:
-        sample_keys = sorted(
-            [k for k in hf.keys() if k.startswith("sample_")],
-            key=lambda k: int(k.split("_")[1]),
-        )
+    # Pre-index the JSONL so we can random-access if needed, but we'll
+    # always iterate in order which is the common case.
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        jsonl_records = [json.loads(line) for line in f]
 
-        for key in sample_keys:
-            grp     = hf[key]
-            new_idx = int(grp.attrs["new_index"])
-            seq_len = int(grp.attrs["seq_len"])
+    with h5py.File(h5_path, 'r') as h5:
+        total = sum(1 for k in h5.keys() if k.startswith('sample_'))
+        limit = min(total, max_samples) if max_samples else total
 
-            if max_seq_len is not None and seq_len > max_seq_len:
+        for i in range(limit):
+            grp_key = f'sample_{i}'
+            if grp_key not in h5:
                 continue
 
-            record = records.get(new_idx)
-            if record is None:
-                continue
+            grp = h5[grp_key]
+            original_index = int(grp.attrs.get('original_index', -1))
 
-            if construct_filter is not None:
-                if record.get("construct_profile") != construct_filter:
+            # --- embeddings ---
+            emb_grp = grp['embeddings']
+            embeddings = {}
+            for key in emb_grp.keys():
+                if embedding_layers is not None:
+                    layer_idx = int(key.split('_')[1])
+                    if layer_idx not in embedding_layers:
+                        continue
+                embeddings[key] = emb_grp[key][:]   # loads into RAM, float16
+
+            # --- attention ---
+            attn_grp = grp['attention']
+            attention = {}
+            for key in attn_grp.keys():
+                if attention_keys is not None and key not in attention_keys:
                     continue
+                attention[key] = attn_grp[key][:]
 
-            # Load arrays — convert float16 → float32 for computation
-            embeddings = grp["embeddings"][()].astype(np.float32)
-            attentions = grp["attentions"][()].astype(np.float32)
+            # --- JSONL metadata ---
+            if i < len(jsonl_records):
+                rec = jsonl_records[i]
+                # Sanity check alignment
+                if rec.get('original_index', original_index) != original_index:
+                    raise ValueError(
+                        f"sample_{i}: HDF5 original_index={original_index} "
+                        f"but JSONL original_index={rec.get('original_index')}. "
+                        "Ensure HDF5 and JSONL were produced from the same stratified file.")
+            else:
+                rec = {}
 
             yield {
-                "embeddings": embeddings,
-                "attentions": attentions,
-                "record":     record,
-                "meta": {
-                    "new_index":      new_idx,
-                    "original_index": int(grp.attrs["original_index"]),
-                    "seq_len":        seq_len,
-                },
+                'sample_idx':        i,
+                'original_index':    original_index,
+                'embeddings':        embeddings,
+                'attention':         attention,
+                'ast_info':          rec.get('ast_info'),
+                'go_constructs':     rec.get('go_constructs'),
+                'construct_profile': rec.get('construct_profile', 'unknown'),
+                'length_bucket':     rec.get('length_bucket', 'unknown'),
+                'query':             rec.get('query', ''),
+                'target':            rec.get('target', ''),
             }
 
 
-def get_embedding_layer(sample: Dict, layer_idx: int) -> np.ndarray:
-    """Return embeddings for a specific layer. Shape: (seq_len, hidden_size)."""
-    return sample["embeddings"][layer_idx]
-
-
-def get_attention_head(sample: Dict, layer_idx: int, head_key_idx: int) -> np.ndarray:
-    """
-    Return attention matrix for a specific layer and KEY head index.
-    head_key_idx is the index into KEY_HEADS list (0-4), not the raw head number.
-    Shape: (seq_len, seq_len)
-    """
-    return sample["attentions"][layer_idx][head_key_idx]
-
-
-def get_attention_head_by_id(sample: Dict, layer_idx: int, head_id: int) -> Optional[np.ndarray]:
-    """
-    Return attention matrix by actual head number (e.g. head 7).
-    Returns None if head_id was not stored.
-    """
-    if head_id not in KEY_HEADS:
+def get_embedding(sample: dict, layer: int) -> Optional[np.ndarray]:
+    """Convenience: get float32 embedding for a given layer."""
+    arr = sample['embeddings'].get(f'layer_{layer}')
+    if arr is None:
         return None
-    key_idx = KEY_HEADS.index(head_id)
-    return get_attention_head(sample, layer_idx, key_idx)
+    return arr.astype(np.float32)
 
 
-def count_available(h5_path: Path) -> int:
-    """Return number of samples written to HDF5."""
-    with h5py.File(h5_path, "r") as f:
-        return sum(1 for k in f.keys() if k.startswith("sample_"))
+def get_attention_matrix(sample: dict, layer: int, head: int) -> Optional[np.ndarray]:
+    """Convenience: get float32 attention matrix for a given layer+head."""
+    arr = sample['attention'].get(f'layer_{layer}_head_{head}')
+    if arr is None:
+        return None
+    return arr.astype(np.float32)
+
+
+def has_construct(sample: dict, construct_name: str) -> bool:
+    """Return True if the sample contains at least one occurrence of construct."""
+    constructs = sample.get('go_constructs') or {}
+    items = constructs.get(construct_name, [])
+    return isinstance(items, list) and len(items) > 0
+
+
+def count_construct(sample: dict, construct_name: str) -> int:
+    """Return number of occurrences of construct in the sample."""
+    constructs = sample.get('go_constructs') or {}
+    items = constructs.get(construct_name, [])
+    if isinstance(items, list):
+        return len(items)
+    return 0
