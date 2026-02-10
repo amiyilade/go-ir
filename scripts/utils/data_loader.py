@@ -29,9 +29,34 @@ import numpy as np
 # -----------------------------------------------------------------------
 
 def load_metadata(h5_path: Path) -> dict:
-    """Return the metadata dict stored in the HDF5 file."""
+    """Return metadata from HDF5, inferring missing keys from the data itself."""
     with h5py.File(h5_path, 'r') as h5:
-        return json.loads(h5.attrs.get('metadata', '{}'))
+        meta = json.loads(h5.attrs.get('metadata', '{}'))
+
+        # If keys are missing (older file format), infer from first sample
+        if 'num_layers' not in meta or 'hidden_size' not in meta:
+            sample_keys = sorted(
+                [k for k in h5.keys() if k.startswith('sample_')],
+                key=lambda x: int(x.split('_')[1])
+            )
+            if sample_keys:
+                grp = h5[sample_keys[0]]
+                emb_grp = grp.get('embeddings', {})
+                layer_keys = [k for k in emb_grp.keys() if k.startswith('layer_')]
+                if layer_keys:
+                    meta['num_layers'] = len(layer_keys)
+                    meta['hidden_size'] = int(emb_grp[layer_keys[0]].shape[-1])
+                attn_grp = grp.get('attention', {})
+                if attn_grp:
+                    heads = set()
+                    for k in attn_grp.keys():
+                        parts = k.split('_')  # layer_0_head_3
+                        if len(parts) == 4:
+                            heads.add(int(parts[3]))
+                    meta.setdefault('num_heads', len(heads))
+                meta.setdefault('num_samples', len(sample_keys))
+
+        return meta
 
 
 def stream_samples(
