@@ -193,8 +193,10 @@ def get_attention_matrix(sample: dict, layer: int, head: int) -> Optional[np.nda
 
 def has_construct(sample: dict, construct_name: str) -> bool:
     """True if the sample contains at least one occurrence of construct."""
-    items = (sample.get('go_constructs') or {}).get(construct_name, [])
-    return isinstance(items, list) and len(items) > 0
+    val = (sample.get('go_constructs') or {}).get(construct_name, 0)
+    if isinstance(val, int):
+        return val > 0
+    return len(val) > 0
 
 
 def count_construct(sample: dict, construct_name: str) -> int:
