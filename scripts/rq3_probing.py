@@ -33,7 +33,7 @@ from utils.data_loader import stream_samples, load_metadata, get_embedding
 
 DATA_DIR     = Path("data")
 FEATURES_DIR = Path("data/features")
-RESULTS_DIR  = Path("results")
+RESULTS_DIR  = Path("/content/results")
 
 MAX_SEQ_LEN           = 80
 PROBE_EPOCHS          = 20
