@@ -1,254 +1,331 @@
 #!/usr/bin/env python3
 """
-Script 8: RQ4 — Go Construct Encoding  (Novel contribution)
-Part A: Classification probes — can each layer's embeddings predict
-        whether a Go construct is present? (accuracy + F1 per layer)
-Part B: PCA variance explained + t-SNE coordinates saved for plotting.
-
-Input:  data/features/{task}_{model}.h5
-        data/stratified_2k_{task}_with_asts.jsonl
-Output: results/rq4_{task}_{model}.json
+Script 8: RQ4 — Construct Embedding Analysis
+Part A: Linear classification probes — can layer embeddings detect construct presence?
+Part B: PCA / t-SNE — visualise construct clusters in embedding space
 
 Usage:
-    python scripts/rq4_constructs.py --model unixcoder --task code-to-text
+    python 8_rq4_constructs.py --model unixcoder --task code-to-text
+
+Output:
+    results/rq4_{task}_{model}.json
+    figures/rq4_tsne_{task}_{model}_{construct}.png  (one per construct)
 """
 
 import argparse
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
-from sklearn.manifold import TSNE
-from sklearn.metrics import accuracy_score, f1_score
-from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.decomposition import PCA
+from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils.data_loader import stream_samples, load_metadata
+from utils.data_loader import stream_samples, load_metadata, get_embedding, has_construct
 
-DATA_DIR    = Path("data")
-RESULTS_DIR = Path("results")
+DATA_DIR     = Path("data")
+FEATURES_DIR = Path("data/features")
+RESULTS_DIR  = Path("results")
+FIGURES_DIR  = Path("figures")
 
-GO_CONSTRUCTS = [
-    "goroutines", "channels", "defer", "error_patterns",
-    "select_statements", "interfaces", "type_assertions", "context_usage",
+CONSTRUCTS = [
+    'goroutines', 'channels', 'defer', 'error_patterns',
+    'select_statements', 'interfaces', 'type_assertions', 'context_usage'
 ]
 
-KEY_LAYERS  = [0, 1, 3, 5, 7, 9, 11, 12]   # subset for speed
-N_SPLITS_CV = 5      # cross-validation folds
-TSNE_PERP   = 30
-TSNE_MAX_SAMPLES = 500   # cap t-SNE inputs (slow otherwise)
-PCA_COMPONENTS   = 50
+# Key layers to analyse for construct encoding
+KEY_LAYERS = [0, 1, 3, 5, 7, 9, 11, 12]
+
+# Minimum samples in minority class for a construct to be analysed
+MIN_POSITIVE = 10
 
 
-def pool_embedding(emb: np.ndarray) -> np.ndarray:
-    """Mean-pool across sequence dimension. (seq, hidden) → (hidden,)."""
-    return emb.mean(axis=0)
+def mean_pool(emb: np.ndarray) -> np.ndarray:
+    """Mean-pool over sequence dimension → [hidden_size]."""
+    return emb.astype(np.float32).mean(axis=0)
 
 
-def run_classification_probe(X: np.ndarray, y: np.ndarray,
-                              construct: str, layer: int) -> dict:
+def cls_token(emb: np.ndarray) -> np.ndarray:
+    """CLS token (first token) → [hidden_size]."""
+    return emb[0].astype(np.float32)
+
+
+# -----------------------------------------------------------------------
+# Part A: Classification probes
+# -----------------------------------------------------------------------
+
+def probe_construct(samples: list, construct: str,
+                    num_layers: int, pooling: str = 'mean') -> dict:
     """
-    Logistic regression probe with stratified 5-fold CV.
-    Returns accuracy and F1 averaged across folds.
+    For each key layer, train a linear probe to predict whether
+    the construct is present. Returns per-layer AUROC (5-fold CV).
     """
-    if sum(y) < 2 or sum(1 - y) < 2:
-        return None  # need at least 2 of each class
+    # Build labels
+    labels = np.array([1 if has_construct(s, construct) else 0
+                        for s in samples])
+    n_pos = labels.sum()
+    n_neg = (labels == 0).sum()
 
+    if n_pos < MIN_POSITIVE or n_neg < MIN_POSITIVE:
+        return {'skipped': True,
+                'reason': f'too few positives ({n_pos}) or negatives ({n_neg})'}
+
+    layer_results = []
+
+    for layer in KEY_LAYERS:
+        if layer >= num_layers:
+            continue
+
+        # Build feature matrix
+        X_list = []
+        for s in samples:
+            emb = get_embedding(s, layer)
+            if emb is None:
+                X_list.append(None)
+                continue
+            if pooling == 'mean':
+                X_list.append(mean_pool(emb))
+            else:
+                X_list.append(cls_token(emb))
+
+        # Filter out None
+        valid_mask = [x is not None for x in X_list]
+        X  = np.stack([x for x in X_list if x is not None])
+        y  = labels[valid_mask]
+
+        if y.sum() < MIN_POSITIVE:
+            layer_results.append({'layer': layer, 'auroc': 0.5, 'n': len(y)})
+            continue
+
+        # Standardise + logistic regression (5-fold)
+        scaler = StandardScaler()
+        X_sc   = scaler.fit_transform(X)
+        clf    = LogisticRegression(max_iter=500, C=1.0, random_state=42)
+        cv     = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        try:
+            scores = cross_val_score(clf, X_sc, y, cv=cv,
+                                     scoring='roc_auc', n_jobs=-1)
+            auroc  = float(np.mean(scores))
+            std    = float(np.std(scores))
+        except Exception:
+            auroc, std = 0.5, 0.0
+
+        layer_results.append({
+            'layer': layer,
+            'auroc': round(auroc, 4),
+            'std':   round(std, 4),
+            'n_positive': int(y.sum()),
+            'n_negative': int((y == 0).sum()),
+        })
+
+    best = max(layer_results, key=lambda x: x.get('auroc', 0)) if layer_results else {}
+    return {
+        'layer_results': layer_results,
+        'best_layer':    best,
+        'n_positive':    int(n_pos),
+        'n_negative':    int(n_neg),
+    }
+
+
+def run_part_a(samples: list, meta: dict) -> dict:
+    print("\n  Part A: Classification Probes...")
+    results = {}
+    for construct in tqdm(CONSTRUCTS, desc="    Probing constructs"):
+        res = probe_construct(samples, construct, meta['num_layers'])
+        results[construct] = res
+        if not res.get('skipped'):
+            best = res.get('best_layer', {})
+            print(f"    {construct:<22}: best layer={best.get('layer','?')} "
+                  f"AUROC={best.get('auroc', 0):.3f}")
+    return results
+
+
+# -----------------------------------------------------------------------
+# Part B: PCA (and t-SNE if sklearn has it)
+# -----------------------------------------------------------------------
+
+def run_part_b_pca(samples: list, meta: dict,
+                   output_dir: Path,
+                   model: str, task: str) -> dict:
+    """
+    PCA at layer 7. For each construct:
+    - Compute 2D PCA of mean-pooled embeddings
+    - Separate WITH vs WITHOUT construct
+    - Store centroid distance and variance ratio for reporting
+    """
+    print("\n  Part B: PCA/t-SNE construct visualisation...")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    layer = 7   # syntax layer
+    if layer >= meta['num_layers']:
+        layer = meta['num_layers'] // 2
+
+    # Build embedding matrix (mean-pooled, layer 7)
+    embeddings = []
+    valid_samples = []
+    for s in samples:
+        emb = get_embedding(s, layer)
+        if emb is not None:
+            embeddings.append(mean_pool(emb))
+            valid_samples.append(s)
+
+    if len(embeddings) < 20:
+        return {'error': 'not enough samples for PCA'}
+
+    X = np.stack(embeddings).astype(np.float32)
     scaler = StandardScaler()
     X_sc   = scaler.fit_transform(X)
 
-    skf = StratifiedKFold(n_splits=N_SPLITS_CV, shuffle=True, random_state=42)
-    accs, f1s = [], []
+    # Fit PCA once on all data
+    pca = PCA(n_components=50, random_state=42)
+    X_pca_50 = pca.fit_transform(X_sc)
 
-    for tr, te in skf.split(X_sc, y):
-        clf = LogisticRegression(max_iter=500, solver="lbfgs",
-                                  class_weight="balanced")
-        clf.fit(X_sc[tr], y[tr])
-        pred = clf.predict(X_sc[te])
-        accs.append(accuracy_score(y[te], pred))
-        f1s.append(f1_score(y[te], pred, zero_division=0))
+    # 2D for visualisation
+    pca2 = PCA(n_components=2, random_state=42)
+    X_2d = pca2.fit_transform(X_sc)
 
-    return {
-        "layer":    layer,
-        "accuracy": round(float(np.mean(accs)), 4),
-        "acc_std":  round(float(np.std(accs)),  4),
-        "f1":       round(float(np.mean(f1s)),  4),
-        "f1_std":   round(float(np.std(f1s)),   4),
-        "n_pos":    int(sum(y)),
-        "n_neg":    int(len(y) - sum(y)),
-    }
+    var_explained = float(pca2.explained_variance_ratio_.sum())
 
+    construct_results = {}
+    for construct in CONSTRUCTS:
+        labels = np.array([1 if has_construct(s, construct) else 0
+                            for s in valid_samples])
+        n_pos = labels.sum()
+        if n_pos < MIN_POSITIVE or (len(labels) - n_pos) < MIN_POSITIVE:
+            construct_results[construct] = {'skipped': True}
+            continue
 
-def run_pca(X: np.ndarray) -> dict:
-    """Fit PCA, return variance explained by top 2/5/10 components."""
-    n_comp = min(PCA_COMPONENTS, X.shape[0] - 1, X.shape[1])
-    if n_comp < 2:
-        return {}
-    pca = PCA(n_components=n_comp)
-    pca.fit(StandardScaler().fit_transform(X))
-    ev = pca.explained_variance_ratio_
-    return {
-        "var_top2":   round(float(ev[:2].sum()),  4),
-        "var_top5":   round(float(ev[:5].sum()),  4),
-        "var_top10":  round(float(ev[:min(10, n_comp)].sum()), 4),
-        "var_ratio":  [round(float(v), 5) for v in ev],
-    }
+        pos_pts = X_2d[labels == 1]
+        neg_pts = X_2d[labels == 0]
 
+        centroid_pos = pos_pts.mean(axis=0)
+        centroid_neg = neg_pts.mean(axis=0)
+        centroid_dist = float(np.linalg.norm(centroid_pos - centroid_neg))
 
-def run_tsne(X: np.ndarray, labels: np.ndarray) -> dict:
-    """
-    Run t-SNE on a capped subset. Return coordinates + labels for plotting.
-    We save the coordinates so visualize.py can render them without
-    re-running the expensive embedding collection.
-    """
-    n = min(TSNE_MAX_SAMPLES, X.shape[0])
-    idx = np.random.default_rng(42).choice(X.shape[0], n, replace=False)
-    Xs  = StandardScaler().fit_transform(X[idx])
-    perp = min(TSNE_PERP, n // 3 - 1)
-    if perp < 2:
-        return {}
-    coords = TSNE(n_components=2, perplexity=perp,
-                  random_state=42, n_iter=500).fit_transform(Xs)
-    return {
-        "x":      [round(float(v), 4) for v in coords[:, 0]],
-        "y":      [round(float(v), 4) for v in coords[:, 1]],
-        "labels": [int(v) for v in labels[idx]],
-        "n":      n,
-    }
+        # Try t-SNE if available (skip gracefully if not)
+        tsne_results = None
+        try:
+            from sklearn.manifold import TSNE
+            # Run t-SNE on top-50 PCA components (much faster)
+            n_tsne = min(len(X_pca_50), 500)
+            idx    = np.random.RandomState(42).choice(len(X_pca_50), n_tsne, replace=False)
+            X_sub  = X_pca_50[idx]
+            lab_sub = labels[idx]
 
+            tsne = TSNE(n_components=2, random_state=42,
+                        perplexity=min(30, n_tsne // 5),
+                        n_iter=500, verbose=0)
+            X_tsne = tsne.fit_transform(X_sub)
 
-# ── main ───────────────────────────────────────────────────────────────────
+            pos_t = X_tsne[lab_sub == 1]
+            neg_t = X_tsne[lab_sub == 0]
+            tsne_centroid_dist = float(np.linalg.norm(
+                pos_t.mean(axis=0) - neg_t.mean(axis=0)))
 
-def analyse(model: str, task: str):
-    task_slug  = task.replace("-", "_")
-    h5_path    = DATA_DIR / "features" / f"{task}_{model}.h5"
-    jsonl_path = DATA_DIR / f"stratified_2k_{task_slug}_with_asts.jsonl"
-
-    if not h5_path.exists() or not jsonl_path.exists():
-        print("✗ Required files not found")
-        return
-
-    meta    = load_metadata(h5_path)
-    n_total = meta["num_samples"]
-    n_lay   = meta["num_layers"]
-    print(f"  {n_total} samples, {n_lay} layers")
-
-    # ── collect pooled embeddings per layer ───────────────────────────────
-    # layer_embs[layer] → list of (hidden,) arrays
-    layer_embs:   dict = defaultdict(list)
-    # labels[layer][construct] → list of 0/1
-    labels_dict:  dict = defaultdict(lambda: defaultdict(list))
-
-    for sample in tqdm(stream_samples(h5_path, jsonl_path),
-                       desc="  Collecting", total=n_total):
-        constructs = sample["record"].get("go_constructs", {})
-
-        for layer_idx in KEY_LAYERS:
-            if layer_idx > n_lay:
-                continue
-            emb    = sample["embeddings"][layer_idx]   # (seq, hidden)
-            pooled = pool_embedding(emb)
-            layer_embs[layer_idx].append(pooled)
-
-            for c in GO_CONSTRUCTS:
-                has = int(constructs.get(c, 0) > 0)
-                labels_dict[layer_idx][c].append(has)
-
-    # Convert to arrays
-    for layer_idx in KEY_LAYERS:
-        if layer_embs[layer_idx]:
-            layer_embs[layer_idx] = np.stack(layer_embs[layer_idx])
-
-    # ── Part A: classification probes ─────────────────────────────────────
-    print("\n  Part A: Classification probes …")
-    probe_results: dict = {}
-
-    for c in tqdm(GO_CONSTRUCTS, desc="  Constructs"):
-        c_results = []
-        for layer_idx in KEY_LAYERS:
-            if layer_idx > n_lay:
-                continue
-            X = layer_embs[layer_idx]
-            if not isinstance(X, np.ndarray):
-                continue
-            y = np.array(labels_dict[layer_idx][c])
-
-            r = run_classification_probe(X, y, c, layer_idx)
-            if r:
-                c_results.append(r)
-
-        if c_results:
-            best = max(c_results, key=lambda x: x["f1"])
-            probe_results[c] = {
-                "all_layers":  c_results,
-                "best_layer":  best,
-                "layer_summary": {f"layer_{r['layer']}": r["f1"] for r in c_results},
+            tsne_results = {
+                'centroid_distance': tsne_centroid_dist,
+                'n_tsne_samples':    n_tsne,
             }
-            print(f"    {c:<22} best layer={best['layer']}  "
-                  f"F1={best['f1']:.3f}  acc={best['accuracy']:.3f}")
 
-    # ── Part B: PCA + t-SNE ───────────────────────────────────────────────
-    print("\n  Part B: PCA + t-SNE …")
+            # Save t-SNE plot
+            try:
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.scatter(X_tsne[lab_sub==0, 0], X_tsne[lab_sub==0, 1],
+                           c='steelblue', alpha=0.4, s=8, label=f'without {construct}')
+                ax.scatter(X_tsne[lab_sub==1, 0], X_tsne[lab_sub==1, 1],
+                           c='crimson', alpha=0.7, s=12, label=f'with {construct}')
+                ax.set_title(f't-SNE Layer 7 — {construct}\n{model} {task}')
+                ax.legend(fontsize=8)
+                ax.set_xlabel('t-SNE 1')
+                ax.set_ylabel('t-SNE 2')
+                plt.tight_layout()
+                fig_path = output_dir / f"rq4_tsne_{task.replace('-','_')}_{model}_{construct}.png"
+                plt.savefig(fig_path, dpi=150)
+                plt.close()
+            except Exception:
+                pass  # matplotlib not required for results
 
-    # Layer 7 is the syntax layer — focus visualisation here, plus layer 1 for contrast
-    vis_layers = [l for l in [1, 7] if l in layer_embs and isinstance(layer_embs[l], np.ndarray)]
+        except ImportError:
+            pass
 
-    pca_results  = {}
-    tsne_results = {}
+        construct_results[construct] = {
+            'n_positive':        int(n_pos),
+            'n_negative':        int(len(labels) - n_pos),
+            'pca_centroid_distance': centroid_dist,
+            'pca_var_explained':     var_explained,
+            'tsne':                  tsne_results,
+        }
 
-    for layer_idx in vis_layers:
-        X = layer_embs[layer_idx]
-        print(f"    Layer {layer_idx}: PCA …", end="", flush=True)
-        pca_results[f"layer_{layer_idx}"] = run_pca(X)
-        print(" t-SNE …", end="", flush=True)
-
-        # t-SNE per construct (only the most prevalent ones to keep output size down)
-        tsne_results[f"layer_{layer_idx}"] = {}
-        for c in ["error_patterns", "goroutines", "channels", "defer"]:
-            y = np.array(labels_dict[layer_idx][c])
-            if sum(y) < 5:
-                continue
-            tsne_results[f"layer_{layer_idx}"][c] = run_tsne(X, y)
-        print(" done")
-
-    # ── save ───────────────────────────────────────────────────────────────
-    out = {
-        "model":  model,
-        "task":   task,
-        "part_a_classification_probes": probe_results,
-        "part_b_representation": {
-            "pca":  pca_results,
-            "tsne": tsne_results,
-        },
+    return {
+        'layer_analysed':    layer,
+        'pca_var_explained': var_explained,
+        'construct_results': construct_results,
     }
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = RESULTS_DIR / f"rq4_{task_slug}_{model}.json"
-    with open(out_path, "w") as f:
-        json.dump(out, f, indent=2)
 
-    print(f"\n  ✓ Saved to {out_path.name}")
-
+# -----------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, choices=["unixcoder", "codebert"])
-    parser.add_argument("--task",  required=True,
-                        choices=["code_to_text", "code_to_code"])
+    parser.add_argument('--model', required=True, choices=['unixcoder', 'codebert'])
+    parser.add_argument('--task',  required=True, choices=['code-to-text', 'code-to-code'])
     args = parser.parse_args()
 
-    print("=" * 60)
-    print(f"SCRIPT 8: RQ4 — GO CONSTRUCT ENCODING")
-    print(f"  model={args.model}  task={args.task}")
-    print("=" * 60)
+    task_key  = args.task.replace('-', '_')
+    h5_path   = FEATURES_DIR / f"{task_key}_{args.model}.h5"
 
-    analyse(args.model, args.task)
+    if args.task == 'code-to-text':
+        jsonl_path = DATA_DIR / "code-to-text/stratified_2k_code_to_text_with_asts.jsonl"
+    else:
+        jsonl_path = DATA_DIR / "code-to-code/stratified_2k_code_to_code_with_asts.jsonl"
+
+    print("\n" + "="*70)
+    print(f"SCRIPT 8: RQ4 CONSTRUCT ENCODING")
+    print(f"  Model: {args.model}  Task: {args.task}")
+    print("="*70)
+
+    if not h5_path.exists():
+        print(f"\n✗ HDF5 not found: {h5_path}. Run Script 4 first.")
+        return
+
+    meta = load_metadata(h5_path)
+    print(f"\n  {meta['num_layers']} layers, hidden={meta['hidden_size']}")
+
+    print("\n  Loading samples...")
+    samples = list(stream_samples(
+        h5_path, jsonl_path,
+        embedding_layers=KEY_LAYERS + [7]  # ensure layer 7 loaded for PCA
+    ))
+    print(f"  Loaded {len(samples)}")
+
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
+    part_a = run_part_a(samples, meta)
+    part_b = run_part_b_pca(samples, meta, FIGURES_DIR, args.model, args.task)
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = RESULTS_DIR / f"rq4_{task_key}_{args.model}.json"
+    with open(output_path, 'w') as f:
+        json.dump({
+            'model':  args.model,
+            'task':   args.task,
+            'part_a_classification_probes': part_a,
+            'part_b_pca_tsne':              part_b,
+        }, f, indent=2)
+
+    print(f"\n✔ Saved: {output_path}")
+    print(f"  Figures: {FIGURES_DIR}/rq4_tsne_{task_key}_{args.model}_*.png")
 
 
 if __name__ == "__main__":
