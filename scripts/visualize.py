@@ -114,7 +114,7 @@ def fig_alignment_heatmap():
             if not data:
                 continue
 
-            heads   = data["part_a_alignment"]["all_heads"]
+            heads   = data["part_a_attention_ast_alignment"]["all_heads"]
             n_lay   = max(h["layer"] for h in heads) + 1
             key_ids = sorted({h["head_id"] for h in heads})
             mat     = np.zeros((n_lay, len(key_ids)))
@@ -154,7 +154,7 @@ def fig_layerwise():
             rq3 = load_json(RESULTS_DIR / f"rq3_{task}_{model}.json")
 
             if rq2:
-                ls_sum = rq2["part_a_alignment"]["layer_summary"]
+                ls_sum = rq2["part_a_attention_ast_alignment"]["layer_summary"]
                 layers = sorted(int(k.split("_")[1]) for k in ls_sum)
                 vals   = [ls_sum[f"layer_{l}"]["mean"] for l in layers]
                 axes[0].plot(layers, vals, ls, color=color, label=label, lw=1.8)
@@ -331,7 +331,7 @@ def fig_model_comparison():
             key = f"{model}/{TASK_LABELS[task]}"
 
             if rq2:
-                metrics["alignment"][key] = rq2["part_a_alignment"]["overall"]["max"]
+                metrics["alignment"][key] = rq2["part_a_attention_ast_alignment"]["overall"]["max"]
             if rq3:
                 bp = rq3["part_a_structural_probing"].get("best_layer", {})
                 bt = rq3["part_b_tree_induction"].get("best_layer", {})
