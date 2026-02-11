@@ -116,10 +116,10 @@ def fig_alignment_heatmap():
 
             heads   = data["part_a_attention_ast_alignment"]["all_heads"]
             n_lay   = max(h["layer"] for h in heads) + 1
-            key_ids = sorted({h["head_id"] for h in heads})
+            key_ids = sorted({h["head"] for h in heads})
             mat     = np.zeros((n_lay, len(key_ids)))
             for h in heads:
-                ci = key_ids.index(h["head_id"])
+                ci = key_ids.index(h["head"])
                 mat[h["layer"], ci] = h["mean_alignment"]
 
             fig, ax = plt.subplots(figsize=(6, 5))
