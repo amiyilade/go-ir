@@ -207,7 +207,7 @@ def fig_probe_f1():
         best_f1 = []
         for c in GO_CONSTRUCTS:
             if c in probes and probes[c].get("best_layer"):
-                best_f1.append(probes[c]["best_layer"]["f1"])
+                best_f1.append(probes[c]["best_layer"]["auroc"])
             else:
                 best_f1.append(0.0)
 
@@ -248,7 +248,7 @@ def fig_probe_layer_curves():
                     continue
                 rows_sorted = sorted(rows, key=lambda x: x["layer"])
                 layers = [r["layer"] for r in rows_sorted]
-                f1s    = [r["f1"]    for r in rows_sorted]
+                f1s    = [r["auroc"]    for r in rows_sorted]
                 ax.plot(layers, f1s, marker="o", lw=1.8, label=c.replace("_", " "))
 
             ax.axhline(0.5, color="gray", ls="--", lw=1, label="Chance")
