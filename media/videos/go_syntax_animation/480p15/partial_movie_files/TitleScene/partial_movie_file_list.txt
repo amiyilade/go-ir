@@ -1,6 +1,0 @@
-# This file is used internally by FFMPEG.
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/480p15/partial_movie_files/TitleScene/2340480722_2542760888_223132457.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/480p15/partial_movie_files/TitleScene/875235068_952061645_1102695649.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/480p15/partial_movie_files/TitleScene/875235068_2484267071_2556638713.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/480p15/partial_movie_files/TitleScene/875235068_4227382746_3952171281.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/480p15/partial_movie_files/TitleScene/875235068_2408024828_3537835498.mp4'

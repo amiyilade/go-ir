@@ -1,8 +1,0 @@
-# This file is used internally by FFMPEG.
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1157257604_477213926_223132457.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1944924962_3073706382_3822171836.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1944924962_2332720650_2995915873.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1944924962_2157816675_2903589184.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1944924962_4197929969_516681582.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1944924962_3241060810_4029952129.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ3TreeScene/1944924962_2164560990_2082090974.mp4'

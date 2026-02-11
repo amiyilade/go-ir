@@ -1,9 +1,0 @@
-# This file is used internally by FFMPEG.
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1157257604_1166374876_223132457.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_2275764219_870703752.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_986946343_2032290087.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_2564615284_3015343387.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_1645050685_2110787895.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_925228404_507042230.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_3137344402_1076108530.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/RQ2Scene/1944924962_2164560990_3702686260.mp4'

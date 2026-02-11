@@ -1,8 +1,0 @@
-# This file is used internally by FFMPEG.
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1157257604_3226219622_223132457.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1944924962_1455863420_739539977.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1944924962_944469257_333632812.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1944924962_2696086365_2980415568.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1944924962_3508007736_2099068283.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1944924962_2670899879_2102896554.mp4'
-file 'file:/Users/onesi/Downloads/Unibas/DeepL/go-ir/media/videos/go_syntax_animation/720p30/partial_movie_files/SummaryScene/1944924962_1734327179_591764663.mp4'
