@@ -110,6 +110,8 @@ def fig_prevalence():
 def get_mean_alignment(h):
     return h.get("mean_alignment", h.get("mean"))
 
+def get_head_id(h):
+    return h.get("head_id", h.get("head"))
 
 def fig_alignment_heatmap():
     for model in MODELS:
@@ -120,10 +122,10 @@ def fig_alignment_heatmap():
 
             heads   = data["part_a_attention_ast_alignment"]["all_heads"]
             n_lay   = max(h["layer"] for h in heads) + 1
-            key_ids = sorted({h["head"] for h in heads})
+            key_ids = sorted({get_head_id(h) for h in heads})
             mat     = np.zeros((n_lay, len(key_ids)))
             for h in heads:
-                ci = key_ids.index(h["head"])
+                ci = key_ids.index(get_head_id(h))
                 mat[h["layer"], ci] = get_mean_alignment(h)
 
             fig, ax = plt.subplots(figsize=(6, 5))
