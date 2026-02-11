@@ -157,7 +157,7 @@ def stream_samples(
                 None
             )
             ast_info     = raw_ast.get(code_key)  if code_key else raw_ast or None
-            go_constructs = raw_cstr.get(code_key) if code_key else raw_cstr or None
+            go_constructs = raw_cstr.get(code_key) if code_key and code_key in raw_cstr else raw_cstr or None
 
             yield {
                 'sample_idx':        i,
