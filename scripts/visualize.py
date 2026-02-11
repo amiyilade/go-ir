@@ -107,6 +107,10 @@ def fig_prevalence():
 
 # ── Fig 2: RQ2 — Alignment Heatmap ────────────────────────────────────────
 
+def get_mean_alignment(h):
+    return h.get("mean_alignment", h.get("mean"))
+
+
 def fig_alignment_heatmap():
     for model in MODELS:
         for task in TASKS:
@@ -120,7 +124,7 @@ def fig_alignment_heatmap():
             mat     = np.zeros((n_lay, len(key_ids)))
             for h in heads:
                 ci = key_ids.index(h["head"])
-                mat[h["layer"], ci] = h["mean_alignment"]
+                mat[h["layer"], ci] = get_mean_alignment(h)
 
             fig, ax = plt.subplots(figsize=(6, 5))
             im = ax.imshow(mat, cmap="YlOrRd", aspect="auto", vmin=0, vmax=mat.max())
