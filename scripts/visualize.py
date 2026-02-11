@@ -318,6 +318,9 @@ def fig_tsne():
 
 # ── Fig 7 (optional): Cross-model comparison ──────────────────────────────
 
+def get_max_alignment(h):
+    return h.get("max_alignment", h.get("max"))
+
 def fig_model_comparison():
     """Only rendered if both UniXcoder and CodeBERT results exist."""
     has_both = all(
@@ -337,7 +340,7 @@ def fig_model_comparison():
             key = f"{model}/{TASK_LABELS[task]}"
 
             if rq2:
-                metrics["alignment"][key] = rq2["part_a_attention_ast_alignment"]["overall"]["max"]
+                metrics["alignment"][key] = get_max_alignment(rq2["part_a_attention_ast_alignment"]["overall"])
             if rq3:
                 bp = rq3["part_a_structural_probing"].get("best_layer", {})
                 bt = rq3["part_b_tree_induction"].get("best_layer", {})
