@@ -120,23 +120,29 @@ def fig_alignment_heatmap():
             if not data:
                 continue
 
-            heads   = data["part_a_attention_ast_alignment"]["all_heads"]
-            n_lay   = max(h["layer"] for h in heads) + 1
-            key_ids = sorted({get_head_id(h) for h in heads})
-            mat     = np.zeros((n_lay, len(key_ids)))
-            for h in heads:
-                ci = key_ids.index(get_head_id(h))
-                mat[h["layer"], ci] = get_mean_alignment(h)
+            layer_summary = data["part_a_attention_ast_alignment"]["layer_summary"]
 
-            fig, ax = plt.subplots(figsize=(6, 5))
+            # handle JSON string keys safely
+            layers = sorted(layer_summary, key=lambda x: int(x.replace("layer_", "")))
+            n_lay = len(layers)
+
+            mat = np.zeros((n_lay, 1))  # single column = per-layer alignment
+
+            for i, layer in enumerate(layers):
+                mat[i, 0] = get_mean_alignment(layer_summary[layer])
+
+            fig, ax = plt.subplots(figsize=(3, 5))
             im = ax.imshow(mat, cmap="YlOrRd", aspect="auto", vmin=0, vmax=mat.max())
-            ax.set_xticks(range(len(key_ids)))
-            ax.set_xticklabels([f"H{h}" for h in key_ids])
+
+            ax.set_xticks([0])
+            ax.set_xticklabels(["Mean"])
             ax.set_yticks(range(n_lay))
-            ax.set_yticklabels([f"L{i}" for i in range(n_lay)])
-            ax.set_xlabel("Head")
+            ax.set_yticklabels([f"L{l.replace('layer_', '')}" for l in layers])
+
+            ax.set_xlabel("Alignment")
             ax.set_ylabel("Layer")
             ax.set_title(f"Attention-AST Alignment — {model} / {TASK_LABELS[task]}")
+
             plt.colorbar(im, ax=ax, label="Alignment score")
             plt.tight_layout()
             save_fig(fig, f"fig2_alignment_{task}_{model}")
