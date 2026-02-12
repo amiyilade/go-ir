@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 """
-Script 7: RQ3 — Structural Probing + Tree Induction  (vectorized, fast)
+RQ3 — Structural Probing + Tree Induction
 
-Key fixes vs original:
-  - AST distances computed ONCE, reused across all 12 layers
-  - Pairs built with torch.triu_indices (no Python nested loops)
-  - Entire probe forward pass in ONE batched call per sample
-  - MPS/CUDA used when available
-  - Reduced defaults: 20 epochs, max 400 train samples, max 80 tokens
-
-Usage:
-    python 7_rq3_probing.py --model unixcoder --task code-to-text
 Output:
     results/rq3_{task}_{model}.json
+
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import argparse, json, sys
@@ -40,7 +34,7 @@ PROBE_EPOCHS          = 20
 PROBE_LR              = 1e-3
 MAX_TRAIN_SAMPLES     = 2000
 MAX_INDUCTION_SAMPLES = 500
-MAX_INDUCTION_SEQ_LEN = 40   # cap for Chu-Liu-Edmonds (O(n²))
+MAX_INDUCTION_SEQ_LEN = 40   
 LAMBDA_BIAS           = 1.0
 
 DEVICE = (
@@ -49,20 +43,16 @@ DEVICE = (
     torch.device("cpu")
 )
 
-
-# ── Probe ──────────────────────────────────────────────────────────────────────
 class StructuralProbe(nn.Module):
     def __init__(self, hidden_size):
         super().__init__()
         self.B = nn.Parameter(torch.randn(hidden_size, hidden_size) * 0.01)
 
     def forward_pairs(self, H, idx_i, idx_j):
-        diff = H[idx_i] - H[idx_j]          # (n_pairs, hidden_size)
-        transformed = diff @ self.B              # apply linear map B
-        return (transformed ** 2).sum(dim=1)    # squared norm ‖B·diff‖²
+        diff = H[idx_i] - H[idx_j]          
+        transformed = diff @ self.B              
+        return (transformed ** 2).sum(dim=1)   
 
-
-# ── AST helpers ────────────────────────────────────────────────────────────────
 def get_tree_distances(ast_info):
     leaf_nodes = ast_info.get('leaf_nodes', [])
     n = len(leaf_nodes)
@@ -115,8 +105,6 @@ def gold_pairs_from_ast(ast_info):
         traverse(ast_info['ast_tree'])
     return pairs
 
-
-# ── Part A ─────────────────────────────────────────────────────────────────────
 def run_part_a(samples, meta):
     print(f"\n  Part A: Structural Probing  "
           f"(epochs={PROBE_EPOCHS}, max_train={MAX_TRAIN_SAMPLES}, device={DEVICE})")
@@ -124,7 +112,6 @@ def run_part_a(samples, meta):
     num_layers  = meta['num_layers']
     hidden_size = meta['hidden_size']
 
-    # Pre-compute AST distances ONCE for all samples
     print("    Pre-computing AST distances...", end=' ', flush=True)
     ast_cache = {}
     for s in samples:
@@ -153,7 +140,6 @@ def run_part_a(samples, meta):
             layer_results.append({'layer': layer, 'spearman': 0.0, 'std': 0.0, 'n': 0})
             continue
 
-        # Cap training size
         if len(emb_list) > MAX_TRAIN_SAMPLES + 100:
             rng = np.random.default_rng(42)
             idx = rng.choice(len(emb_list), MAX_TRAIN_SAMPLES + 100, replace=False)
@@ -172,7 +158,6 @@ def run_part_a(samples, meta):
             for emb, dist in zip(tr_emb, tr_dist):
                 n = emb.shape[0]
                 H = torch.from_numpy(emb).to(DEVICE)
-                # Build ALL pairs vectorised — no Python loop
                 ii, jj = torch.triu_indices(n, n, offset=1, device=DEVICE)
                 idx_i  = torch.cat([ii, jj])
                 idx_j  = torch.cat([jj, ii])
@@ -210,8 +195,6 @@ def run_part_a(samples, meta):
     return {'layer_results': layer_results, 'best_layer': best,
             'layer_summary': {f"layer_{r['layer']}": r['spearman'] for r in layer_results}}
 
-
-# ── Part B ─────────────────────────────────────────────────────────────────────
 def compute_distances(emb):
     diffs = emb[:-1] - emb[1:]
     return np.sqrt((diffs ** 2).sum(axis=1))
@@ -271,7 +254,7 @@ def run_part_b(samples, meta):
         for s in valid:
             emb = get_embedding(s, layer)
             if emb is None or emb.shape[0] < 2: continue
-            emb = emb[:MAX_INDUCTION_SEQ_LEN]  # cap to avoid O(n²) hang
+            emb = emb[:MAX_INDUCTION_SEQ_LEN] 
             dists   = apply_bias(compute_distances(emb))
             parents = induce_tree(dists)
             f1s.append(f1_score(tree_to_pairs(parents), gold_pairs_from_ast(s['ast_info'])))
@@ -286,7 +269,6 @@ def run_part_b(samples, meta):
             'layer_summary': {f"layer_{r['layer']}": r['mean_f1'] for r in layer_results}}
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True, choices=['unixcoder', 'codebert'])
@@ -298,12 +280,12 @@ def main():
     jsonl_path = DATA_DIR / args.task / f"stratified_2k_{task_key}_with_asts.jsonl"
 
     print("\n" + "="*60)
-    print(f"SCRIPT 7: RQ3 — STRUCTURAL PROBING + TREE INDUCTION")
+    print(f"RQ3 — STRUCTURAL PROBING + TREE INDUCTION")
     print(f"  model={args.model}  task={args.task}")
     print("="*60)
 
     if not h5_path.exists():
-        print(f"\n✗ HDF5 not found: {h5_path}. Run Script 4 first."); return
+        print(f"\n✗ HDF5 not found: {h5_path}. Run extract_features.py first."); return
 
     meta = load_metadata(h5_path)
     print(f"\n  {meta['num_layers']} layers, hidden={meta['hidden_size']}")

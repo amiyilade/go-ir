@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script 3: Parse ASTs
+Parse ASTs
 Parses full AST trees for the 2k stratified sample only.
 
 Input:  data/stratified_2k_code_to_text.jsonl
@@ -8,8 +8,8 @@ Input:  data/stratified_2k_code_to_text.jsonl
 Output: data/stratified_2k_code_to_text_with_asts.jsonl
         data/stratified_2k_code_to_code_with_asts.jsonl
 
-Usage:
-    python scripts/parse_asts.py
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import json
@@ -36,7 +36,7 @@ TASKS = [
     },
 ]
 
-MAX_AST_DEPTH = 12   # Prevents huge serialised trees
+MAX_AST_DEPTH = 12  
 
 
 class ASTParser:
@@ -44,7 +44,6 @@ class ASTParser:
         self.parser = Parser(Language(tsgo.language()))
 
     def parse(self, code: str) -> Dict:
-        """Return full AST info needed by RQ scripts."""
         try:
             tree = self.parser.parse(bytes(code, "utf8"))
         except Exception as e:
@@ -58,8 +57,6 @@ class ASTParser:
             "leaf_nodes":  self._leaves(root),
             "ast_tree":    self._serialize(root),
         }
-
-    # ── helpers ────────────────────────────────────────────────────────────
 
     def _count(self, node) -> int:
         return 1 + sum(self._count(c) for c in node.children)
@@ -131,7 +128,7 @@ def process_task(task: dict, parser: ASTParser):
 
 def main():
     print("=" * 60)
-    print("SCRIPT 3: PARSE ASTs")
+    print("PARSE ASTs")
     print("=" * 60)
 
     parser = ASTParser()
@@ -141,7 +138,7 @@ def main():
         process_task(task, parser)
 
     print(f"\n{'='*60}")
-    print("✓ DONE — next: python scripts/extract_features.py --model unixcoder --task code-to-text")
+    print("✓ DONE")
     print(f"{'='*60}\n")
 
 

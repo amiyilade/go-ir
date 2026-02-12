@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Script 2 (FULL): Organize Data Without Sampling
+Organize Data Without Sampling
 Processes the FULL CoIR Go dataset for comprehensive analysis.
+
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import json
@@ -10,7 +13,6 @@ from pathlib import Path
 from collections import defaultdict
 import sys
 
-# Configuration
 RAW_DIR = Path("data/coir_go")
 CODE_TO_TEXT_INPUT = RAW_DIR / "codesearchnet" / "consolidated.jsonl"
 CODE_TO_CODE_INPUT = RAW_DIR / "codesearchnet-ccr" / "consolidated.jsonl"
@@ -21,7 +23,6 @@ CODE_TO_CODE_DIR = Path("data/code-to-code")
 RANDOM_SEED = 42
 
 def load_jsonl(file_path):
-    """Load JSONL file into list of dictionaries."""
     print(f"Loading {file_path.name}...")
     data = []
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -31,7 +32,6 @@ def load_jsonl(file_path):
     return data
 
 def save_jsonl(data, file_path):
-    """Save list of dictionaries to JSONL file."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, 'w', encoding='utf-8') as f:
         for item in data:
@@ -40,11 +40,9 @@ def save_jsonl(data, file_path):
     print(f"  ✓ Saved {len(data):,} samples to {file_path.name}")
 
 def analyze_data(data, task_name):
-    """Analyze and print statistics about the data."""
     print(f"\n[{task_name} Statistics]")
     print(f"  Total examples: {len(data):,}")
     
-    # Analyze query and target lengths
     query_lengths = [len(d['query']) for d in data if 'query' in d]
     target_lengths = [len(d['target']) for d in data if 'target' in d]
     
@@ -56,12 +54,10 @@ def analyze_data(data, task_name):
         print(f"  Target length: {min(target_lengths)}-{max(target_lengths)} chars")
         print(f"                (avg: {sum(target_lengths)/len(target_lengths):.0f} chars)")
     
-    # Show example structure
     if data:
         print(f"  Example keys: {list(data[0].keys())}")
 
 def show_example(data, task_name):
-    """Show an example from the dataset."""
     if not data:
         return
     
@@ -75,27 +71,24 @@ def show_example(data, task_name):
     print()
 
 def main():
-    """Main execution function."""
     print("\n" + "=" * 80)
-    print("CoIR Go FULL DATASET ORGANIZATION")
+    print("CoIR Go DATASET ORGANIZATION")
     print("=" * 80)
-    print("\nProcessing ENTIRE datasets (NO SAMPLING):")
+    print("\nProcessing entire datasets:")
     print("  • Code-to-Text: All 8,122 examples")
     print("  • Code-to-Code: All 8,122 examples")
     print()
     
-    # Check if input files exist
     if not CODE_TO_TEXT_INPUT.exists():
         print(f"\n✗ Error: Code-to-text data not found: {CODE_TO_TEXT_INPUT}")
-        print("  Please run script 1 (download_coir_data.py) first.")
+        print("  Please run download_coir_go.py first.")
         sys.exit(1)
     
     if not CODE_TO_CODE_INPUT.exists():
         print(f"\n✗ Error: Code-to-code data not found: {CODE_TO_CODE_INPUT}")
-        print("  Please run script 1 (download_coir_data.py) first.")
+        print("  Please run download_coir_go.py first.")
         sys.exit(1)
     
-    # Process Code-to-Text
     print("\n" + "=" * 80)
     print("PROCESSING CODE-TO-TEXT (CodeSearchNet) - FULL DATASET")
     print("=" * 80)
@@ -104,11 +97,9 @@ def main():
     analyze_data(code_to_text_data, "Code-to-Text")
     show_example(code_to_text_data, "Code-to-Text")
     
-    # Save FULL dataset
     print(f"\nSaving Code-to-Text data...")
     save_jsonl(code_to_text_data, CODE_TO_TEXT_DIR / "full_code_to_text.jsonl")
     
-    # Process Code-to-Code
     print("\n" + "=" * 80)
     print("PROCESSING CODE-TO-CODE (CodeSearchNet-CCR) - FULL DATASET")
     print("=" * 80)
@@ -117,27 +108,19 @@ def main():
     analyze_data(code_to_code_data, "Code-to-Code")
     show_example(code_to_code_data, "Code-to-Code")
     
-    # Save FULL dataset
     print(f"\nSaving Code-to-Code data...")
     save_jsonl(code_to_code_data, CODE_TO_CODE_DIR / "full_code_to_code.jsonl")
     
-    # Final summary
     print("\n" + "=" * 80)
-    print("✓ FULL DATASET ORGANIZATION COMPLETE")
+    print("✓ DATASET ORGANIZATION COMPLETE")
     print("=" * 80)
     
     print(f"\n[Summary]")
     print(f"Code-to-Text:")
-    print(f"  Full dataset:  {len(code_to_text_data):,} examples → {CODE_TO_TEXT_DIR / 'full_code_to_text.jsonl'}")
+    print(f"  Dataset:  {len(code_to_text_data):,} examples → {CODE_TO_TEXT_DIR / 'full_code_to_text.jsonl'}")
     print()
     print(f"Code-to-Code:")
-    print(f"  Full dataset:  {len(code_to_code_data):,} examples → {CODE_TO_CODE_DIR / 'full_code_to_code.jsonl'}")
-    print()
-    
-    print("Next steps:")
-    print("  1. Run script 3 to parse ASTs and extract Go constructs:")
-    print("     python scripts/parse_go_asts_full.py")
-    print()
+    print(f"  Dataset:  {len(code_to_code_data):,} examples → {CODE_TO_CODE_DIR / 'full_code_to_code.jsonl'}")
 
 if __name__ == "__main__":
     main()

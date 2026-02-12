@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Script 4: Extract Model Features
+Extract Model Features
 Extracts all 13-layer embeddings + 5 key attention heads from UniXcoder or CodeBERT.
 Saves to HDF5 with float16 + chunking for memory efficiency.
 
 Input:  data/stratified_2k_{task}_with_asts.jsonl
 Output: data/features/{task}_{model}.h5
 
-Usage:
-    python scripts/extract_features.py --model unixcoder --task code-to-text
-    python scripts/extract_features.py --model codebert  --task code-to-code
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import argparse
@@ -48,11 +47,9 @@ TASK_CONFIGS = {
     },
 }
 
-# Only store these heads (saves ~58% space vs all 12)
 KEY_HEADS   = [0, 3, 5, 7, 11]
-CHUNK_SIZE  = 50    # samples per HDF5 chunk
+CHUNK_SIZE  = 50    
 DTYPE       = np.float16
-
 
 def get_device():
     if torch.cuda.is_available():
@@ -80,7 +77,6 @@ def load_model(model_key: str, device: str):
 
 @torch.no_grad()
 def extract(code: str, tokenizer, model, cfg: dict, device: str):
-    """Return (embeddings, attentions) or None on failure."""
     try:
         inputs = tokenizer(
             code,
@@ -92,19 +88,17 @@ def extract(code: str, tokenizer, model, cfg: dict, device: str):
 
         out = model(**inputs)
 
-        # hidden_states: tuple of (batch, seq, hidden) — one per layer incl. embedding layer
         embeddings = np.stack(
             [h.squeeze(0).cpu().to(torch.float32).numpy()
              for h in out.hidden_states],
             axis=0,
-        ).astype(DTYPE)   # (num_layers+1, seq_len, hidden)
+        ).astype(DTYPE)  
 
-        # attentions: tuple of (batch, heads, seq, seq)
         attentions = np.stack(
             [a.squeeze(0)[KEY_HEADS].cpu().to(torch.float32).numpy()
              for a in out.attentions],
             axis=0,
-        ).astype(DTYPE)   # (num_layers, len(KEY_HEADS), seq, seq)
+        ).astype(DTYPE)  
 
         seq_len = embeddings.shape[1]
         return embeddings, attentions, seq_len
@@ -114,14 +108,12 @@ def extract(code: str, tokenizer, model, cfg: dict, device: str):
 
 
 def create_hdf5(path: Path, num_samples: int, model, n_key_heads: int):
-    """Pre-create HDF5 file with variable-length datasets."""
     path.parent.mkdir(parents=True, exist_ok=True)
     num_layers  = model.config.num_hidden_layers
     hidden_size = model.config.hidden_size
 
     f = h5py.File(path, "w")
 
-    # metadata
     meta = f.create_group("metadata")
     meta.attrs["num_layers"]  = num_layers
     meta.attrs["hidden_size"] = hidden_size
@@ -134,16 +126,13 @@ def create_hdf5(path: Path, num_samples: int, model, n_key_heads: int):
 
 def write_sample(f: h5py.File, new_idx: int, orig_idx: int,
                  embeddings, attentions, seq_len: int):
-    """Write one sample to HDF5 under group sample_{new_idx}."""
     grp = f.create_group(f"sample_{new_idx}")
     grp.attrs["original_index"] = orig_idx
     grp.attrs["new_index"]      = new_idx
     grp.attrs["seq_len"]        = seq_len
 
-    # embeddings: (layers+1, seq, hidden)  — variable seq dim → store as-is
     grp.create_dataset("embeddings", data=embeddings,
                        compression="gzip", compression_opts=4)
-    # attentions: (layers, key_heads, seq, seq)
     grp.create_dataset("attentions", data=attentions,
                        compression="gzip", compression_opts=4)
 
@@ -159,7 +148,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print(f"SCRIPT 4: EXTRACT FEATURES")
+    print(f"EXTRACT FEATURES")
     print(f"  model = {args.model}   task = {args.task}")
     print("=" * 60)
 
@@ -171,7 +160,6 @@ def main():
         print(f"✗ JSONL not found: {task_cfg['jsonl']}")
         return
 
-    # Load JSONL
     with open(task_cfg["jsonl"]) as f:
         records = [json.loads(l) for l in f]
     print(f"  Loaded {len(records)} records")
@@ -179,7 +167,6 @@ def main():
     device = get_device()
     tokenizer, model = load_model(args.model, device)
 
-    # Determine already-written samples for resume
     done = set()
     if args.resume and out_path.exists():
         with h5py.File(out_path, "r") as f_check:
@@ -192,7 +179,6 @@ def main():
     with h5py.File(out_path, mode) as hf:
 
         if not done:
-            # Write metadata on fresh file
             meta = hf.require_group("metadata")
             meta.attrs["num_layers"]  = model.config.num_hidden_layers
             meta.attrs["hidden_size"] = model.config.hidden_size
@@ -231,11 +217,6 @@ def main():
     print(f"  ✓ File size: {size_mb:.0f} MB")
 
     task_slug = args.task.replace("-", "_")
-    print(f"\n  Next:")
-    print(f"    python scripts/extract_features.py --model {args.model} "
-          f"--task {'code-to-code' if 'text' in args.task else 'code-to-text'}")
-    print(f"    python scripts/rq1_prevalence.py")
-
 
 if __name__ == "__main__":
     main()

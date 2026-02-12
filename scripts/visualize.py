@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """
-Script 9: Visualize
+Visualization
 Reads all results JSON files and generates publication-quality figures.
-
-Works with UniXcoder alone.  If CodeBERT results are also present,
-comparison panels are added automatically.
 
 Output: results/figures/*.png  +  *.pdf
 
-Usage:
-    python scripts/visualize.py
-    python scripts/visualize.py --model unixcoder   # force single-model mode
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import argparse
@@ -48,9 +44,6 @@ CONSTRUCT_LABELS = [
     "Select", "Interfaces", "Type\nAssertions", "Context",
 ]
 
-
-# ── helpers ────────────────────────────────────────────────────────────────
-
 def load_json(path: Path):
     if not path.exists():
         return None
@@ -71,12 +64,10 @@ def save_fig(fig, name: str):
     print(f"  ✓ {name}.png / .pdf")
 
 
-# ── Fig 1: RQ1 — Construct Prevalence ─────────────────────────────────────
-
 def fig_prevalence():
     datasets = {t: load_json(RESULTS_DIR / f"rq1_prevalence_{t}.json") for t in TASKS}
     if not any(datasets.values()):
-        print("  ⚠ No RQ1 prevalence data — skipping Fig 1")
+        print("  No RQ1 prevalence data — skipping Fig 1")
         return
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
@@ -105,8 +96,6 @@ def fig_prevalence():
     save_fig(fig, "fig1_prevalence")
 
 
-# ── Fig 2: RQ2 — Alignment Heatmap ────────────────────────────────────────
-
 def get_mean_alignment(h):
     return h.get("mean_alignment", h.get("mean"))
 
@@ -122,11 +111,10 @@ def fig_alignment_heatmap():
 
             layer_summary = data["part_a_attention_ast_alignment"]["layer_summary"]
 
-            # handle JSON string keys safely
             layers = sorted(layer_summary, key=lambda x: int(x.replace("layer_", "")))
             n_lay = len(layers)
 
-            mat = np.zeros((n_lay, 1))  # single column = per-layer alignment
+            mat = np.zeros((n_lay, 1)) 
 
             for i, layer in enumerate(layers):
                 mat[i, 0] = get_mean_alignment(layer_summary[layer])
@@ -148,7 +136,17 @@ def fig_alignment_heatmap():
             save_fig(fig, f"fig2_alignment_{task}_{model}")
 
 
-# ── Fig 3: RQ2/RQ3 — Layer-wise Performance ───────────────────────────────
+
+def get_probe_score(h):
+    return h["spearman"] if isinstance(h, dict) else h
+
+def get_tree_score(h):
+    if isinstance(h, dict):
+        return h.get("f1", h.get("auroc"))
+    return h
+
+def get_mean_alignment(h):
+    return h.get("mean_alignment", h.get("mean"))
 
 def fig_layerwise():
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
@@ -168,18 +166,18 @@ def fig_layerwise():
             if rq2:
                 ls_sum = rq2["part_a_attention_ast_alignment"]["layer_summary"]
                 layers = sorted(int(k.split("_")[1]) for k in ls_sum)
-                vals   = [ls_sum[f"layer_{l}"]["mean"] for l in layers]
+                vals   = [get_mean_alignment(ls_sum[f"layer_{l}"]) for l in layers]
                 axes[0].plot(layers, vals, ls, color=color, label=label, lw=1.8)
 
             if rq3:
                 probe_sum = rq3["part_a_structural_probing"]["layer_summary"]
                 layers = sorted(int(k.split("_")[1]) for k in probe_sum)
-                vals   = [probe_sum[f"layer_{l}"] for l in layers]
+                vals = [get_probe_score(probe_sum[f"layer_{l}"]) for l in layers]
                 axes[1].plot(layers, vals, ls, color=color, label=label, lw=1.8)
 
                 tree_sum = rq3["part_b_tree_induction"]["layer_summary"]
                 layers = sorted(int(k.split("_")[1]) for k in tree_sum)
-                vals   = [tree_sum[f"layer_{l}"] for l in layers]
+                vals   = [get_tree_score(tree_sum[f"layer_{l}"]) for l in layers]
                 axes[2].plot(layers, vals, ls, color=color, label=label, lw=1.8)
 
     ylabels = ["Alignment score", "Spearman ρ", "F1"]
@@ -194,9 +192,6 @@ def fig_layerwise():
     plt.tight_layout()
     save_fig(fig, "fig3_layerwise")
 
-
-# ── Fig 4: RQ4 — Classification Probe F1 per Construct ────────────────────
-
 def fig_probe_f1():
     collected = {}
     for model in MODELS:
@@ -206,7 +201,7 @@ def fig_probe_f1():
                 collected[(model, task)] = data
 
     if not collected:
-        print("  ⚠ No RQ4 data — skipping Fig 4")
+        print("  No RQ4 data — skipping Fig 4")
         return
 
     fig, axes = plt.subplots(1, len(collected), figsize=(6 * len(collected), 5))
@@ -239,7 +234,8 @@ def fig_probe_f1():
     save_fig(fig, "fig4_probe_f1")
 
 
-# ── Fig 5: RQ4 — Probe F1 by Layer for Key Constructs ─────────────────────
+def get_probe_metric(r):
+    return r.get("f1", r.get("auroc", r.get("score")))
 
 def fig_probe_layer_curves():
     key_constructs = ["error_patterns", "goroutines", "channels", "defer"]
@@ -255,25 +251,22 @@ def fig_probe_layer_curves():
             for c in key_constructs:
                 if c not in probes:
                     continue
-                rows = probes[c].get("all_layers", [])
+                rows = probes[c].get("layer_results", [])
                 if not rows:
                     continue
                 rows_sorted = sorted(rows, key=lambda x: x["layer"])
                 layers = [r["layer"] for r in rows_sorted]
-                f1s    = [r["auroc"]    for r in rows_sorted]
+                f1s    = [get_probe_metric(r) for r in rows_sorted]
                 ax.plot(layers, f1s, marker="o", lw=1.8, label=c.replace("_", " "))
 
             ax.axhline(0.5, color="gray", ls="--", lw=1, label="Chance")
             ax.set_xlabel("Layer")
-            ax.set_ylabel("Cross-val F1")
+            ax.set_ylabel("Probe performance")
             ax.set_title(f"Probe F1 by Layer — {model} / {TASK_LABELS[task]}")
             ax.legend(fontsize=8)
             ax.grid(alpha=0.3)
             plt.tight_layout()
             save_fig(fig, f"fig5_probe_curves_{task}_{model}")
-
-
-# ── Fig 6: RQ4 — t-SNE Scatter ────────────────────────────────────────────
 
 def fig_tsne():
     for model in MODELS:
@@ -281,34 +274,43 @@ def fig_tsne():
             data = load_json(RESULTS_DIR / f"rq4_{task}_{model}.json")
             if not data:
                 continue
-            tsne_data = data.get("part_b_representation", {}).get("tsne", {})
-            if not tsne_data:
+
+            part_b = data.get("part_b_pca_tsne", {})
+            if not part_b:
                 continue
 
-            # Visualise layer 7 if available, else first available
-            layer_key = "layer_7" if "layer_7" in tsne_data else next(iter(tsne_data), None)
-            if not layer_key:
+            layer = part_b.get("layer_analysed", None)  
+            construct_results = part_b.get("construct_results", {})
+            if layer is None or not construct_results:
                 continue
-            layer_constructs = tsne_data[layer_key]
+
+            layer_constructs = {}
+            for c, info in construct_results.items():
+                if not info or info.get("skipped"):
+                    continue
+                tsne = info.get("tsne") or {}
+                coords = tsne.get("coords")
+                if coords and coords.get("x") and coords.get("y") and coords.get("labels"):
+                    layer_constructs[c] = coords
+
             if not layer_constructs:
                 continue
 
-            n_plots = len(layer_constructs)
+            construct_names = sorted(layer_constructs.keys())
+            n_plots = len(construct_names)
+
             fig, axes = plt.subplots(1, n_plots, figsize=(5 * n_plots, 4.5))
             if n_plots == 1:
                 axes = [axes]
 
-            for ax, (c, coords) in zip(axes, layer_constructs.items()):
-                if not coords:
-                    ax.set_visible(False)
-                    continue
+            for ax, c in zip(axes, construct_names):
+                coords = layer_constructs[c]
                 x  = np.array(coords["x"])
                 y  = np.array(coords["y"])
                 lb = np.array(coords["labels"])
-                ax.scatter(x[lb == 0], y[lb == 0], s=8,  alpha=0.4,
-                           c="#95a5a6", label="absent")
-                ax.scatter(x[lb == 1], y[lb == 1], s=14, alpha=0.7,
-                           c="#e74c3c", label="present")
+
+                ax.scatter(x[lb == 0], y[lb == 0], s=8,  alpha=0.4, label="absent")
+                ax.scatter(x[lb == 1], y[lb == 1], s=14, alpha=0.7, label="present")
                 ax.set_title(c.replace("_", " "))
                 ax.set_xlabel("t-SNE 1")
                 ax.set_ylabel("t-SNE 2")
@@ -316,25 +318,22 @@ def fig_tsne():
                 ax.axis("off")
 
             fig.suptitle(
-                f"Figure 6 · t-SNE ({layer_key}) — "
-                f"{model} / {TASK_LABELS[task]}  (RQ4b)", y=1.02)
+                f"Figure 6 · t-SNE (layer {layer}) — {model} / {TASK_LABELS[task]}  (RQ4b)",
+                y=1.02
+            )
             plt.tight_layout()
             save_fig(fig, f"fig6_tsne_{task}_{model}")
-
-
-# ── Fig 7 (optional): Cross-model comparison ──────────────────────────────
 
 def get_max_alignment(h):
     return h.get("max_alignment", h.get("max"))
 
 def fig_model_comparison():
-    """Only rendered if both UniXcoder and CodeBERT results exist."""
     has_both = all(
         (RESULTS_DIR / f"rq2_{task}_{m}.json").exists()
         for m in MODELS for task in TASKS
     )
     if not has_both:
-        print("  ⚠ CodeBERT results not found — skipping cross-model comparison Fig 7")
+        print("  No CodeBERT results — skipping cross-model comparison Fig 7")
         return
 
     metrics = {"alignment": {}, "probing": {}, "tree_f1": {}}
@@ -372,9 +371,6 @@ def fig_model_comparison():
     plt.tight_layout()
     save_fig(fig, "fig7_model_comparison")
 
-
-# ── main ───────────────────────────────────────────────────────────────────
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", choices=MODELS,
@@ -382,7 +378,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("SCRIPT 9: VISUALIZE")
+    print("VISUALIZE")
     print("=" * 60)
     FIG_DIR.mkdir(parents=True, exist_ok=True)
 

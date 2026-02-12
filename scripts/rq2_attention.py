@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Script 6: RQ2 — Attention Analysis
+RQ2 — Attention Analysis
 Part A: Attention-AST alignment (Wan et al. methodology)
 Part B: Attention entropy/focus — samples WITH vs WITHOUT each Go construct
 
-Usage:
-    python 6_rq2_attention.py --model unixcoder --task code-to-text
-    python 6_rq2_attention.py --model codebert  --task code-to-code
-
 Output:
     results/rq2_{task}_{model}.json
+
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import argparse
@@ -38,14 +37,8 @@ CONSTRUCTS = [
 ]
 KEY_HEADS = [0, 3, 5, 7, 11]
 
-# Wan et al. parameters
-ATTENTION_THRESHOLD     = 0.3   # θ: high-confidence attention
-MIN_HIGH_CONF_PAIRS     = 10    # minimum pairs required for alignment score
-
-
-# -----------------------------------------------------------------------
-# Part A: Attention-AST Alignment
-# -----------------------------------------------------------------------
+ATTENTION_THRESHOLD     = 0.3   
+MIN_HIGH_CONF_PAIRS     = 10    
 
 def get_ast_parent_pairs(ast_info: dict) -> set:
     """Extract (i,j) pairs where tokens i,j share the same AST parent node."""
@@ -73,7 +66,6 @@ def get_ast_parent_pairs(ast_info: dict) -> set:
         for child in children:
             sibling_leaves.append(get_leaf_indices(child))
 
-        # pairs between siblings (non-adjacent, per paper)
         flat = [idx for grp in sibling_leaves for idx in grp]
         for ii in range(len(flat)):
             for jj in range(ii + 1, len(flat)):
@@ -94,7 +86,6 @@ def get_ast_parent_pairs(ast_info: dict) -> set:
 def alignment_score_for_head(attn_matrix: np.ndarray,
                               ast_pairs: set,
                               threshold: float = ATTENTION_THRESHOLD) -> dict:
-    """p_α(f) as in Wan et al. Equation 4."""
     seq_len = attn_matrix.shape[0]
     high_conf = [(i, j) for i in range(seq_len)
                          for j in range(seq_len)
@@ -113,7 +104,6 @@ def alignment_score_for_head(attn_matrix: np.ndarray,
 
 
 def attention_variability(matrices: list, max_tok: int = 10) -> float:
-    """Equation 5 from Wan et al. High = content-dependent, low = position-based."""
     trimmed = [m[:max_tok, :max_tok] for m in matrices
                if m.shape[0] >= max_tok and m.shape[1] >= max_tok]
     if not trimmed:
@@ -127,7 +117,6 @@ def attention_variability(matrices: list, max_tok: int = 10) -> float:
 
 
 def run_part_a(samples: list, meta: dict) -> dict:
-    """Attention-AST alignment across all layer-head combinations."""
     print("\n  Part A: Attention-AST Alignment...")
 
     num_layers = meta['num_layers']
@@ -152,7 +141,6 @@ def run_part_a(samples: list, meta: dict) -> dict:
                     results_by_head[key]['scores'].append(result['score'])
                     results_by_head[key]['matrices'].append(attn)
 
-    # Aggregate
     head_results = []
     for (layer, head), data in results_by_head.items():
         scores    = data['scores']
@@ -169,7 +157,6 @@ def run_part_a(samples: list, meta: dict) -> dict:
 
     head_results.sort(key=lambda x: -x['mean_score'])
 
-    # Layer summary
     layer_scores = defaultdict(list)
     for r in head_results:
         layer_scores[r['layer']].append(r['mean_score'])
@@ -194,24 +181,12 @@ def run_part_a(samples: list, meta: dict) -> dict:
         },
     }
 
-
-# -----------------------------------------------------------------------
-# Part B: Construct Attention Analysis
-# -----------------------------------------------------------------------
-
 def attention_entropy(attn_row: np.ndarray) -> float:
-    """Shannon entropy of an attention distribution."""
     p = attn_row.astype(np.float32) + 1e-10
     p /= p.sum()
     return float(-np.sum(p * np.log(p)))
 
-
 def run_part_b(samples: list, meta: dict) -> dict:
-    """
-    For each construct × each layer × key heads:
-    compare attention entropy and max-attention between
-    samples WITH vs WITHOUT the construct.
-    """
     print("\n  Part B: Construct Attention Analysis...")
 
     num_layers = meta['num_layers']
@@ -245,11 +220,9 @@ def run_part_b(samples: list, meta: dict) -> dict:
                 if len(entropy_with) < 3 or len(entropy_without) < 3:
                     continue
 
-                # t-test
                 t_ent, p_ent = stats.ttest_ind(entropy_with, entropy_without)
                 t_max, p_max = stats.ttest_ind(maxattn_with, maxattn_without)
 
-                # Cohen's d
                 def cohen_d(a, b):
                     na, nb = len(a), len(b)
                     pooled = np.sqrt(((na-1)*np.var(a) + (nb-1)*np.var(b)) / (na+nb-2))
@@ -270,16 +243,10 @@ def run_part_b(samples: list, meta: dict) -> dict:
                     'cohens_d_maxattn':   cohen_d(maxattn_with, maxattn_without),
                 })
 
-        # Sort by |Cohen's d| (effect size)
         construct_results.sort(key=lambda x: -abs(x.get('cohens_d_entropy', 0)))
         results[construct] = construct_results
 
     return results
-
-
-# -----------------------------------------------------------------------
-# Main
-# -----------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -313,11 +280,9 @@ def main():
     samples = list(stream_samples(h5_path, jsonl_path))
     print(f"  Loaded {len(samples)} samples")
 
-    # Run analyses
     part_a = run_part_a(samples, meta)
     part_b = run_part_b(samples, meta)
 
-    # Print quick summary
     print(f"\n  [Part A Summary]")
     print(f"  Overall mean alignment: {part_a['overall']['mean_alignment']:.3f}")
     print(f"  Max alignment:          {part_a['overall']['max_alignment']:.3f}")
@@ -329,7 +294,6 @@ def main():
         print(f"\n  Best head: Layer {best['layer']}, Head {best['head']} "
               f"→ {best['mean_score']:.3f} ({best['head_type']})")
 
-    # Save
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = RESULTS_DIR / f"rq2_{task_key}_{args.model}.json"
     output = {

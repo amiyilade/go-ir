@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Script 1: Extract Go Constructs
-Extracts Go-specific constructs from full dataset using tree-sitter.
-Fast pass - no full AST tree stored, just construct counts for stratification.
+Extract Go Constructs
+Extracts Go-specific constructs from dataset using tree-sitter.
 
 Input:  data/full_code_to_text.jsonl, data/full_code_to_code.jsonl
 Output: data/full_code_to_text_constructs.jsonl, data/full_code_to_code_constructs.jsonl
 
-Usage:
-    python scripts/extract_go_constructs.py
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import json
@@ -19,7 +18,6 @@ from tqdm import tqdm
 from tree_sitter import Language, Parser
 import tree_sitter_go as tsgo
 
-# ── paths ──────────────────────────────────────────────────────────────────
 DATA_DIR = Path("data")
 
 TASKS = [
@@ -27,14 +25,14 @@ TASKS = [
         "name":       "code-to-text",
         "input":      DATA_DIR / "full_code_to_text.jsonl",
         "output":     DATA_DIR / "full_code_to_text_constructs.jsonl",
-        "code_field": "query",       # field containing Go code
-        "code_label": "code",        # label used in downstream scripts
+        "code_field": "query",      
+        "code_label": "code",        
     },
     {
         "name":       "code-to-code",
         "input":      DATA_DIR / "full_code_to_code.jsonl",
         "output":     DATA_DIR / "full_code_to_code_constructs.jsonl",
-        "code_field": "query",       # initial segment only (as agreed)
+        "code_field": "query",       
         "code_label": "initial_segment",
     },
 ]
@@ -44,15 +42,11 @@ GO_CONSTRUCTS = [
     "select_statements", "interfaces", "type_assertions", "context_usage",
 ]
 
-
-# ── parser ─────────────────────────────────────────────────────────────────
-
 class GoConstructExtractor:
     def __init__(self):
         self.parser = Parser(Language(tsgo.language()))
 
     def extract(self, code: str) -> Dict[str, int]:
-        """Return construct counts for a single code snippet."""
         try:
             tree = self.parser.parse(bytes(code, "utf8"))
         except Exception:
@@ -90,10 +84,8 @@ class GoConstructExtractor:
             self._walk(child, code, counts)
 
 
-# ── helpers ────────────────────────────────────────────────────────────────
 
 def code_length_bucket(code: str) -> str:
-    """Bucket code into short / medium / long by token count (whitespace split)."""
     n = len(code.split())
     if n < 50:
         return "short"
@@ -104,7 +96,6 @@ def code_length_bucket(code: str) -> str:
 
 
 def construct_profile(counts: Dict[str, int]) -> str:
-    """Coarse 4-way profile used for stratification."""
     has_conc  = counts.get("goroutines", 0) + counts.get("channels", 0) \
                 + counts.get("select_statements", 0) > 0
     has_error = counts.get("error_patterns", 0) > 0
@@ -121,7 +112,6 @@ def construct_profile(counts: Dict[str, int]) -> str:
         return "none"
 
 
-# ── main ───────────────────────────────────────────────────────────────────
 
 def process_task(task: dict, extractor: GoConstructExtractor):
     if not task["input"].exists():
@@ -148,7 +138,6 @@ def process_task(task: dict, extractor: GoConstructExtractor):
             profile = construct_profile(counts)
             bucket  = code_length_bucket(code)
 
-            # Write enriched record
             out = {
                 "original_index":  i,
                 "task_type":       task["name"],
@@ -186,7 +175,7 @@ def process_task(task: dict, extractor: GoConstructExtractor):
 
 def main():
     print("=" * 60)
-    print("SCRIPT 1: EXTRACT GO CONSTRUCTS")
+    print("EXTRACT GO CONSTRUCTS")
     print("=" * 60)
 
     extractor = GoConstructExtractor()
@@ -196,7 +185,7 @@ def main():
         process_task(task, extractor)
 
     print(f"\n{'='*60}")
-    print("✓ DONE — next: python scripts/create_stratified_sample.py")
+    print("✓ DONE")
     print(f"{'='*60}\n")
 
 

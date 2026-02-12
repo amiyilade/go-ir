@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Script 5: RQ1 — Construct Prevalence
-Analyses the distribution of Go-specific constructs across the full dataset.
-No model required — runs on the construct-annotated full JSONL.
+RQ1 — Construct Prevalence
+Analyses the distribution of Go-specific constructs across the dataset.
+PS: No model required.
 
 Input:  data/full_code_to_text_constructs.jsonl
         data/full_code_to_code_constructs.jsonl
 Output: results/rq1_prevalence_code_to_text.json
         results/rq1_prevalence_code_to_code.json
 
-Usage:
-    python scripts/rq1_prevalence.py
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import json
@@ -58,7 +58,6 @@ def analyse_task(task: dict) -> dict:
     total = len(records)
     print(f"  Total samples: {total}")
 
-    # ── per-construct stats ────────────────────────────────────────────────
     construct_stats = {}
     for c in GO_CONSTRUCTS:
         counts = [r["go_constructs"].get(c, 0) for r in records]
@@ -73,11 +72,9 @@ def analyse_task(task: dict) -> dict:
         print(f"  {c:<22} {positive:5d} samples ({positive/total*100:.1f}%)  "
               f"total={sum(counts)}")
 
-    # ── profile distribution ───────────────────────────────────────────────
     profile_dist = Counter(r["construct_profile"] for r in records)
     length_dist  = Counter(r["length_bucket"]     for r in records)
 
-    # ── co-occurrence matrix ───────────────────────────────────────────────
     cooccurrence = defaultdict(lambda: defaultdict(int))
     for r in records:
         present = [c for c in GO_CONSTRUCTS if r["go_constructs"].get(c, 0) > 0]
@@ -86,7 +83,6 @@ def analyse_task(task: dict) -> dict:
                 cooccurrence[ci][cj] += 1
                 cooccurrence[cj][ci] += 1
 
-    # ── mean constructs per sample ─────────────────────────────────────────
     constructs_per_sample = [
         sum(1 for c in GO_CONSTRUCTS if r["go_constructs"].get(c, 0) > 0)
         for r in records
@@ -113,14 +109,14 @@ def analyse_task(task: dict) -> dict:
 
 def main():
     print("=" * 60)
-    print("SCRIPT 5: RQ1 — CONSTRUCT PREVALENCE")
+    print("RQ1 — CONSTRUCT PREVALENCE")
     print("=" * 60)
 
     for task in TASKS:
         analyse_task(task)
 
     print(f"\n{'='*60}")
-    print("✓ DONE — next: python scripts/rq2_attention.py --model unixcoder --task code-to-text")
+    print("✓ DONE")
     print(f"{'='*60}\n")
 
 

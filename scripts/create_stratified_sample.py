@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Script 2: Create Stratified 2k Sample
+Create Stratified 2k Sample
 Selects 2,000 samples per task that mirror the full dataset distribution
-across BOTH construct profile (4 levels) and code length (3 buckets).
+across both construct profile (4 levels) and code length (3 buckets).
 
 Input:  data/full_code_to_text_constructs.jsonl
         data/full_code_to_code_constructs.jsonl
 Output: data/stratified_2k_code_to_text.jsonl
         data/stratified_2k_code_to_code.jsonl
 
-Usage:
-    python scripts/create_stratified_sample.py
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import json
@@ -38,12 +38,6 @@ TASKS = [
 
 
 def stratify(records: list, target: int) -> list:
-    """
-    Stratify by (construct_profile, length_bucket) — 12 possible cells.
-    Each cell is sampled proportionally to its share of the full dataset.
-    Returns exactly `target` records (adjusts for rounding via largest cell).
-    """
-    # Group into cells
     cells = defaultdict(list)
     for r in records:
         key = (r["construct_profile"], r["length_bucket"])
@@ -51,20 +45,16 @@ def stratify(records: list, target: int) -> list:
 
     total = len(records)
 
-    # Compute per-cell target counts
     cell_targets = {}
     for key, group in cells.items():
         cell_targets[key] = max(1, round(len(group) / total * target))
 
-    # Sample from each cell
     selected = []
     for key, group in cells.items():
         n = min(cell_targets[key], len(group))
         selected.extend(random.sample(group, n))
 
-    # Top up / trim to exactly TARGET
     if len(selected) < target:
-        # Add from largest cell not yet fully used
         already = {r["original_index"] for r in selected}
         pool = [r for r in records if r["original_index"] not in already]
         random.shuffle(pool)
@@ -77,7 +67,6 @@ def stratify(records: list, target: int) -> list:
 
 
 def verify(full: list, selected: list):
-    """Print distribution comparison."""
     def dist(lst, key):
         c = Counter(r[key] for r in lst)
         t = len(lst)
@@ -119,7 +108,6 @@ def process_task(task: dict):
 
     selected = stratify(records, TARGET)
 
-    # Re-index sequentially; preserve original_index for traceability
     for new_idx, r in enumerate(sorted(selected, key=lambda x: x["original_index"])):
         r["new_index"] = new_idx
 
@@ -138,14 +126,14 @@ def process_task(task: dict):
 
 def main():
     print("=" * 60)
-    print("SCRIPT 2: CREATE STRATIFIED 2K SAMPLE")
+    print("CREATE STRATIFIED 2K SAMPLE")
     print("=" * 60)
 
     for task in TASKS:
         process_task(task)
 
     print(f"\n{'='*60}")
-    print("✓ DONE — next: python scripts/parse_asts.py")
+    print("✓ DONE")
     print(f"{'='*60}\n")
 
 

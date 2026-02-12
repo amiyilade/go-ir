@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-Script 8: RQ4 — Construct Embedding Analysis (DATA-ONLY)
+RQ4 — Construct Embedding Analysis (DATA-ONLY)
 
 Part A: Linear classification probes — can layer embeddings detect construct presence?
 Part B: PCA + t-SNE (data export) — export 2D coords for qualitative visualisation
 
-Usage:
-    python scripts/rq4_constructs.py --model unixcoder --task code-to-text
-
 Output:
     results/rq4_{task_key}_{model}.json
 
-Notes:
-  - This script does NOT generate figures. All plotting is handled by scripts/visualize.py
-  - JSON includes per-construct t-SNE coords (x, y, labels) so visualize can recreate plots.
+Disclaimer: ChatGPT and Copilot were used to edit and enhance this script for better readability, error handling, and user feedback.
+The author (me) implemented the core logic.
 """
 
 import argparse
@@ -40,16 +36,12 @@ CONSTRUCTS = [
     "select_statements", "interfaces", "type_assertions", "context_usage"
 ]
 
-# Layers to probe (Part A)
 KEY_LAYERS = [0, 1, 3, 5, 7, 9, 11, 12]
 
-# Layer to visualise (Part B); will fall back safely if model has fewer layers
 DEFAULT_VIS_LAYER = 7
 
-# Minimum samples in minority class for a construct to be analysed
 MIN_POSITIVE = 10
 
-# Max points per construct for t-SNE export (keeps JSON small)
 TSNE_MAX_POINTS = 500
 
 
@@ -62,21 +54,12 @@ def cls_token(emb: np.ndarray) -> np.ndarray:
     """CLS token (first token) → [hidden_size]."""
     return emb[0].astype(np.float32)
 
-
-# -----------------------------------------------------------------------
-# Part A: Classification probes
-# -----------------------------------------------------------------------
-
 def probe_construct(
     samples: list,
     construct: str,
     num_layers: int,
     pooling: str = "mean",
 ) -> dict:
-    """
-    For each key layer, train a linear probe to predict whether the construct is present.
-    Returns per-layer AUROC (5-fold CV).
-    """
     labels = np.array([1 if has_construct(s, construct) else 0 for s in samples], dtype=int)
     n_pos = int(labels.sum())
     n_neg = int((labels == 0).sum())
@@ -173,24 +156,13 @@ def run_part_a(samples: list, meta: dict) -> dict:
             )
     return results
 
-
-# -----------------------------------------------------------------------
-# Part B: PCA + t-SNE (export only)
-# -----------------------------------------------------------------------
-
 def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
-    """
-    Build a single embedding matrix at a chosen layer (mean-pooled).
-    Fit PCA (50D + 2D) for metadata and a t-SNE per construct (on PCA-50 features),
-    exporting x/y/labels for visualize.py.
-    """
     print("\n  Part B: PCA/t-SNE construct data export...")
 
     layer = DEFAULT_VIS_LAYER
     if layer >= meta["num_layers"]:
         layer = max(0, meta["num_layers"] // 2)
 
-    # Build embedding matrix (mean-pooled)
     embeddings = []
     valid_samples = []
     for s in samples:
@@ -205,7 +177,6 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
     X = np.stack(embeddings).astype(np.float32)
     X_sc = StandardScaler().fit_transform(X)
 
-    # PCA 50D (for fast t-SNE) and PCA 2D (for metadata only)
     pca50 = PCA(n_components=50, random_state=42)
     X_pca_50 = pca50.fit_transform(X_sc)
 
@@ -213,7 +184,6 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
     _X_pca_2 = pca2.fit_transform(X_sc)
     pca2_var_explained = float(pca2.explained_variance_ratio_.sum())
 
-    # Try importing TSNE once (skip gracefully if not available)
     try:
         from sklearn.manifold import TSNE
         tsne_available = True
@@ -237,8 +207,6 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
             }
             continue
 
-        # Centroid distance in PCA-2 space (metadata-only but useful for reporting)
-        # We compute PCA-2 anew from X_sc is already done; use _X_pca_2 from above.
         pos_pts = _X_pca_2[labels == 1]
         neg_pts = _X_pca_2[labels == 0]
         centroid_dist_pca2 = float(np.linalg.norm(pos_pts.mean(axis=0) - neg_pts.mean(axis=0)))
@@ -252,7 +220,6 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
             X_sub = X_pca_50[idx]
             y_sub = labels[idx]
 
-            # Perplexity constraints: must be < n_samples
             perplexity = min(30, max(5, n_tsne // 5))
             perplexity = min(perplexity, n_tsne - 1)
 
@@ -268,7 +235,6 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
 
             try:
                 X_tsne = tsne.fit_transform(X_sub)
-                # centroid distance in t-SNE (qualitative proxy; treat cautiously)
                 pos_t = X_tsne[y_sub == 1]
                 neg_t = X_tsne[y_sub == 0]
                 centroid_dist_tsne = float(np.linalg.norm(pos_t.mean(axis=0) - neg_t.mean(axis=0)))
@@ -292,7 +258,7 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
             "n_negative": n_neg,
             "pca2_var_explained": pca2_var_explained,
             "pca2_centroid_distance": centroid_dist_pca2,
-            "tsne": tsne_block,  # may be None if TSNE unavailable
+            "tsne": tsne_block, 
         }
 
     return {
@@ -300,11 +266,6 @@ def run_part_b_pca_tsne(samples: list, meta: dict) -> dict:
         "pca2_var_explained": pca2_var_explained,
         "construct_results": construct_results,
     }
-
-
-# -----------------------------------------------------------------------
-# Main
-# -----------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -326,14 +287,13 @@ def main():
     print("=" * 70)
 
     if not h5_path.exists():
-        print(f"\n✗ HDF5 not found: {h5_path}. Run Script 4 first.")
+        print(f"\n✗ HDF5 not found: {h5_path}. Run extract_features.py first.")
         return
 
     meta = load_metadata(h5_path)
     print(f"\n  {meta['num_layers']} layers, hidden={meta['hidden_size']}")
 
     print("\n  Loading samples...")
-    # Ensure embeddings for probe layers + the visualization layer are available
     vis_layer = DEFAULT_VIS_LAYER
     if vis_layer >= meta["num_layers"]:
         vis_layer = max(0, meta["num_layers"] // 2)
